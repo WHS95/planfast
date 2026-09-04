@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import clsx from "clsx";
 import { Bot, ClipboardCheck, History, MessageSquare, PanelRightClose, PanelRightOpen, Download, Share2, Settings2 } from "lucide-react";
 import type { Project } from "@/lib/types";
@@ -31,9 +31,9 @@ export function EditorShell({ project, children }: { project: Project; children:
   const router = useRouter();
   const current = TABS.find((t) => path.startsWith(`/p/${project.id}/${t.key}`))?.key ?? "prd";
   const [tool, setTool] = useState<ToolTab | null>("manny");
-  const [title, setTitle] = useState(project.title);
+  const [titleState, setTitleState] = useState({ projectId: project.id, value: project.title });
+  const title = titleState.projectId === project.id ? titleState.value : project.title;
   const [dialog, setDialog] = useState<"export" | "share" | "settings" | null>(null);
-  useEffect(() => setTitle(project.title), [project.title]);
   const saveTitle = debounce((t: string) => api(`/api/projects/${project.id}`, { method: "PATCH", json: { title: t } }).then(() => router.refresh()), 600);
 
   return (
@@ -42,7 +42,7 @@ export function EditorShell({ project, children }: { project: Project; children:
         <input
           className="font-medium bg-transparent outline-none rounded px-2 py-1 hover:bg-black/[.03] focus:bg-black/[.04] w-56 truncate"
           value={title}
-          onChange={(e) => { setTitle(e.target.value); saveTitle(e.target.value); }}
+          onChange={(e) => { setTitleState({ projectId: project.id, value: e.target.value }); saveTitle(e.target.value); }}
         />
         <nav className="flex items-center gap-1 mx-auto">
           {TABS.map((t) => (

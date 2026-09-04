@@ -30,7 +30,8 @@ export function EditorProvider({ project, openTool, children }: { project: Proje
   const [selection, setSelection] = useState<Ctx["selection"]>(null);
   const [pendingMention, setPending] = useState<Ctx["pendingMention"]>(null);
   const refresh = useCallback(() => { setTick((t) => t + 1); router.refresh(); }, [router]);
-  const openRef = useRef(openTool); openRef.current = openTool;
+  const openRef = useRef(openTool);
+  useEffect(() => { openRef.current = openTool; }, [openTool]);
   const mention = useCallback((m: NonNullable<Ctx["pendingMention"]>) => { setPending(m); openRef.current("manny"); }, []);
   const consumeMention = useCallback(() => setPending(null), []);
   const value = useMemo<Ctx>(() => ({ project, tick, refresh, openTool: (t) => openRef.current(t), selection, setSelection, pendingMention, mention, consumeMention }), [project, tick, refresh, selection, pendingMention, mention, consumeMention]);

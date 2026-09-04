@@ -6,7 +6,6 @@ const DATA_DIR = process.env.PLANFAST_DATA_DIR ?? path.join(process.cwd(), "data
 const DB_PATH = path.join(DATA_DIR, "planfast.db");
 
 declare global {
-  // eslint-disable-next-line no-var
   var __planfastDb: DatabaseSync | undefined;
 }
 
@@ -130,7 +129,8 @@ export function tx<T>(fn: () => T): T {
 export function j<T>(s: unknown, fallback: T): T {
   if (typeof s !== "string") return fallback;
   try {
-    return JSON.parse(s) as T;
+    const parsed = JSON.parse(s) as T;
+    return parsed === null || parsed === undefined ? fallback : parsed;
   } catch {
     return fallback;
   }

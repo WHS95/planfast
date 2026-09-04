@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Plus, Sparkles, Trash2, Check, X, Wand2, MessageSquare } from "lucide-react";
 import clsx from "clsx";
 import { api, debounce } from "@/lib/api";
-import { rid, type Prd, type PrdField, type PrdSection } from "@/lib/types";
+import { rid, type Prd, type PrdField } from "@/lib/types";
 import { useEditor, broadcastChange } from "@/components/editor/EditorContext";
 import { Spinner } from "@/components/ui";
 

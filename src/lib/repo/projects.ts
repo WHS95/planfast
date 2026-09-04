@@ -45,10 +45,12 @@ export const projects = {
       next.title, next.description, next.thumbnail, next.starred ? 1 : 0,
       JSON.stringify(next.prd), JSON.stringify(next.settings), now(), id,
     );
+    void import("./autosnapshot").then((m) => m.maybeAutoSnapshot(id));
     return this.get(id);
   },
   touch(id: string) {
     run("UPDATE projects SET updated_at=? WHERE id=?", now(), id);
+    void import("./autosnapshot").then((m) => m.maybeAutoSnapshot(id));
   },
   softDelete(id: string) {
     run("UPDATE projects SET deleted_at=? WHERE id=?", now(), id);

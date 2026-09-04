@@ -2,6 +2,10 @@
 
 export const ITEM_TYPES = ["requirement", "feature", "spec"] as const;
 export type ItemType = (typeof ITEM_TYPES)[number];
+export const ITEM_TYPE_LABEL: Record<ItemType, string> = { requirement: "요구사항", feature: "기능", spec: "상세기능" };
+/** 계층: requirement → feature → spec */
+export const CHILD_ITEM_TYPE: Record<ItemType, ItemType | null> = { requirement: "feature", feature: "spec", spec: null };
+export const PARENT_ITEM_TYPE: Record<ItemType, ItemType | null> = { requirement: null, feature: "requirement", spec: "feature" };
 
 export const PRIORITIES = ["low", "medium", "high"] as const;
 export type Priority = (typeof PRIORITIES)[number];
@@ -231,6 +235,8 @@ export interface Proposal {
   summary: string;
   op: ProposalOp;
   status: "pending" | "accepted" | "rejected";
+  /** item.create 반영 후 실제 생성된 항목 id (같은 메시지 내 tempId 참조 해석용) */
+  resultId?: string;
 }
 export interface Attachment {
   id: string;
