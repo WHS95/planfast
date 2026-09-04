@@ -38,6 +38,8 @@ interface CliJson {
   result?: string;
   structured_output?: unknown;
   is_error?: boolean;
+  subtype?: string;
+  api_error_status?: number | string | null;
   total_cost_usd?: number;
   usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
 }
@@ -58,7 +60,10 @@ function runCli(args: string[], signal?: AbortSignal): Promise<CliJson> {
       if (start < 0) return reject(new Error(`claude CLI exited ${code}: ${err || out}`.slice(0, 2000)));
       try {
         const parsed = JSON.parse(out.slice(start)) as CliJson;
-        if (parsed.is_error) return reject(new Error(`claude CLI error: ${parsed.result ?? "unknown"}`));
+        if (parsed.is_error) {
+          const detail = [parsed.result, parsed.subtype, parsed.api_error_status != null ? `api_error_status=${parsed.api_error_status}` : "", err.trim()].filter(Boolean).join(" | ") || "unknown";
+          return reject(new Error(`claude CLI error: ${detail}`.slice(0, 2000)));
+        }
         resolve(parsed);
       } catch (e) {
         reject(new Error(`claude CLI returned non-JSON (exit ${code}): ${(e as Error).message}\n${out.slice(0, 500)}`));
