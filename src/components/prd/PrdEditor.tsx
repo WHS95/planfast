@@ -15,33 +15,50 @@ export function PrdEditor({ projectId, initial }: { projectId: string; initial: 
   const [proposal, setProposal] = useState<Proposal>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [saved, setSaved] = useState(true);
+  const skipNextSave = useRef(true);
   const first = useRef(true);
 
   // reload when other panels mutate the project
   useEffect(() => {
     if (first.current) { first.current = false; return; }
-    api<{ prd: Prd }>(`/api/projects/${projectId}`).then((p) => setPrd(p.prd));
+    api<{ prd: Prd }>(`/api/projects/${projectId}`).then((p) => { skipNextSave.current = true; setPrd(p.prd); });
   }, [tick, projectId]);
 
   const save = useRef(debounce((next: Prd) => {
     api(`/api/projects/${projectId}`, { method: "PATCH", json: { prd: next } }).then(() => { setSaved(true); broadcastChange(projectId); });
   }, 600)).current;
-  function update(next: Prd) { setPrd(next); setSaved(false); save(next); }
+  // Save reactively off the committed `prd` state instead of the value passed into each `update()`
+  // call — multiple `update()` calls in one synchronous batch (e.g. "모두 반영") each computed from a
+  // stale closure would otherwise overwrite each other, and only the last one would ever be saved.
+  useEffect(() => {
+    if (skipNextSave.current) { skipNextSave.current = false; return; }
+    setSaved(false);
+    save(prd);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prd]);
+
+  /** All mutations go through a functional updater so batched calls (e.g. accepting every proposal) compose correctly. */
+  function update(updater: (prev: Prd) => Prd) {
+    setPrd(updater);
+  }
 
   function setField(secId: string, fieldId: string, patch: Partial<PrdField>) {
-    update({ sections: prd.sections.map((s) => s.id !== secId ? s : { ...s, fields: s.fields.map((f) => f.id === fieldId ? { ...f, ...patch } : f) }) });
+    update((prev) => ({ sections: prev.sections.map((s) => s.id !== secId ? s : { ...s, fields: s.fields.map((f) => f.id === fieldId ? { ...f, ...patch } : f) }) }));
   }
   function addField(secId: string) {
-    update({ sections: prd.sections.map((s) => s.id !== secId ? s : { ...s, fields: [...s.fields, { id: rid(), label: "새 항목", content: "" }] }) });
+    update((prev) => ({ sections: prev.sections.map((s) => s.id !== secId ? s : { ...s, fields: [...s.fields, { id: rid(), label: "새 항목", content: "" }] }) }));
   }
   function removeField(secId: string, fieldId: string) {
-    update({ sections: prd.sections.map((s) => s.id !== secId ? s : { ...s, fields: s.fields.filter((f) => f.id !== fieldId) }) });
+    update((prev) => ({ sections: prev.sections.map((s) => s.id !== secId ? s : { ...s, fields: s.fields.filter((f) => f.id !== fieldId) }) }));
   }
   function addSection() {
-    update({ sections: [...prd.sections, { id: rid(), key: "custom", title: "새 섹션", fields: [{ id: rid(), label: "항목", content: "" }] }] });
+    update((prev) => ({ sections: [...prev.sections, { id: rid(), key: "custom", title: "새 섹션", fields: [{ id: rid(), label: "항목", content: "" }] }] }));
   }
   function removeSection(secId: string) {
-    update({ sections: prd.sections.filter((s) => s.id !== secId) });
+    update((prev) => ({ sections: prev.sections.filter((s) => s.id !== secId) }));
+  }
+  function setSectionTitle(secId: string, title: string) {
+    update((prev) => ({ sections: prev.sections.map((s) => s.id === secId ? { ...s, title } : s) }));
   }
 
   async function aiFill(scope: "all" | string) {
@@ -52,11 +69,15 @@ export function PrdEditor({ projectId, initial }: { projectId: string; initial: 
     } catch (e) { alert((e as Error).message); } finally { setBusy(null); }
   }
   function accept(fieldId: string) {
-    const sec = prd.sections.find((s) => s.fields.some((f) => f.id === fieldId))!;
-    const f = sec.fields.find((x) => x.id === fieldId)!;
     const v = proposal[fieldId];
-    if (f.values) setField(sec.id, fieldId, { values: v.split(/[,\n]/).map((x) => x.trim()).filter(Boolean) });
-    else setField(sec.id, fieldId, { content: v });
+    if (v === undefined) return;
+    update((prev) => {
+      const sec = prev.sections.find((s) => s.fields.some((f) => f.id === fieldId));
+      if (!sec) return prev;
+      const f = sec.fields.find((x) => x.id === fieldId)!;
+      const patch: Partial<PrdField> = f.values ? { values: v.split(/[,\n]/).map((x) => x.trim()).filter(Boolean) } : { content: v };
+      return { sections: prev.sections.map((s) => s.id !== sec.id ? s : { ...s, fields: s.fields.map((x) => x.id === fieldId ? { ...x, ...patch } : x) }) };
+    });
     setProposal((p) => { const n = { ...p }; delete n[fieldId]; return n; });
   }
   function reject(fieldId: string) { setProposal((p) => { const n = { ...p }; delete n[fieldId]; return n; }); }
@@ -86,7 +107,7 @@ export function PrdEditor({ projectId, initial }: { projectId: string; initial: 
         {prd.sections.map((sec) => (
           <section key={sec.id} className="card mb-4">
             <header className="flex items-center gap-2 px-5 py-3 border-b">
-              <input className="font-medium bg-transparent outline-none flex-1 min-w-0" value={sec.title} onChange={(e) => update({ sections: prd.sections.map((s) => s.id === sec.id ? { ...s, title: e.target.value } : s) })} />
+              <input className="font-medium bg-transparent outline-none flex-1 min-w-0" value={sec.title} onChange={(e) => setSectionTitle(sec.id, e.target.value)} />
               <button className="btn btn-icon text-muted" title="매니에게 이 섹션 질문" onClick={() => mention({ type: "prd", id: sec.key, label: `PRD · ${sec.title}` })}><MessageSquare size={14} /></button>
               <button className="btn btn-icon text-muted" title="이 섹션 AI 작성/보완" disabled={busy !== null} onClick={() => aiFill(sec.id)}>{busy === sec.id ? <Spinner /> : <Wand2 size={14} />}</button>
               {sec.key === "custom" && <button className="btn btn-icon text-muted" onClick={() => removeSection(sec.id)}><Trash2 size={14} /></button>}
