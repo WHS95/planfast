@@ -257,7 +257,7 @@ export interface ChatMessage {
 }
 
 /** 검토 */
-export const REVIEW_PERSPECTIVES = ["dev", "business", "ux", "design", "qa", "security"] as const;
+export const REVIEW_PERSPECTIVES = ["dev", "business", "ux", "design", "qa", "security", "edge_case"] as const;
 export type ReviewPerspective = (typeof REVIEW_PERSPECTIVES)[number];
 export const REVIEW_PERSPECTIVE_LABEL: Record<ReviewPerspective, string> = {
   dev: "개발",
@@ -266,6 +266,8 @@ export const REVIEW_PERSPECTIVE_LABEL: Record<ReviewPerspective, string> = {
   design: "디자인",
   qa: "QA",
   security: "보안",
+  /** spec-edge-case-auditor 방법론(요구사항 분해→상태 매트릭스→경계값→비정상 흐름→5W1H) 기반 정합성 감사. 항상 Fable 5.1로 실행. */
+  edge_case: "정합성 감사 (엣지케이스)",
 };
 export interface Review {
   id: string;
@@ -279,7 +281,8 @@ export interface ReviewItem {
   reviewId: string;
   projectId: string;
   perspective: ReviewPerspective;
-  severity: "warn" | "suggest";
+  /** critical=S1(금전·데이터 손상), warn=S2/주의(기능 불가·상태 꼬임 또는 일반 주의), suggest=S3/제안 */
+  severity: "critical" | "warn" | "suggest";
   /** "prd:<sectionKey>" | "item:<itemId>" */
   target: string;
   targetLabel: string;

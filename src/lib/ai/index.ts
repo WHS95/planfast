@@ -132,11 +132,26 @@ async function apiJson<T>(o: AiOptions, model: string, jsonSchema: Record<string
   return { data, raw: text, usage: { input: msg.usage.input_tokens, output: msg.usage.output_tokens } };
 }
 
+/**
+ * The local Claude Code CLI sometimes bleeds fragments of its own tool-call XML
+ * (`<invoke>`/`<parameter>`/`<function_calls>`/`<...>`) into generated text or JSON string
+ * fields, even with tools disabled (`--tools ""`). Strip those artifacts defensively; real content
+ * (Korean planning text, HTML wireframes) never legitimately contains these exact tag names.
+ */
+const TOOL_ARTIFACT_RE = /<\/?(?:invoke|parameter|function_calls|antml:[a-zA-Z_]+)(?:\s[^>]*)?>/gi;
+function stripToolArtifacts<T>(v: T): T {
+  if (typeof v === "string") return v.replace(TOOL_ARTIFACT_RE, "").replace(/\n{3,}/g, "\n\n").trim() as unknown as T;
+  if (Array.isArray(v)) return v.map(stripToolArtifacts) as unknown as T;
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, vv]) => [k, stripToolArtifacts(vv)])) as T;
+  return v;
+}
+
 // ---------------------------------------------------------------- public API
 export async function generateText(o: AiOptions): Promise<AiResult<string>> {
   const provider = o.provider ?? appSettings.get().aiProvider;
   const model = resolveModel(o.model, provider);
-  return provider === "anthropic-api" ? apiText(o, model) : cliText(o, model);
+  const r = provider === "anthropic-api" ? await apiText(o, model) : await cliText(o, model);
+  return { ...r, data: stripToolArtifacts(r.data) };
 }
 
 /** Schema-constrained generation. Pass a zod schema; it is converted to JSON Schema. */
@@ -145,7 +160,8 @@ export async function generateJson<S extends z.ZodTypeAny>(o: AiOptions & { sche
   const model = resolveModel(o.model, provider);
   const jsonSchema = toJsonSchema(o.schema);
   const res = provider === "anthropic-api" ? await apiJson<unknown>(o, model, jsonSchema) : await cliJson<unknown>(o, model, jsonSchema);
-  const parsed = o.schema.safeParse(res.data);
+  const cleaned = stripToolArtifacts(res.data);
+  const parsed = o.schema.safeParse(cleaned);
   if (!parsed.success) throw new Error(`AI output failed schema validation: ${parsed.error.message.slice(0, 500)}`);
   return { ...res, data: parsed.data };
 }

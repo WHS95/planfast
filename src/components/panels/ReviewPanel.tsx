@@ -17,6 +17,7 @@ export function ReviewPanel({ project }: { project: Project }) {
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<ReviewPerspective>>(new Set(REVIEW_PERSPECTIVES));
 
   const load = useCallback(async () => {
@@ -44,10 +45,11 @@ export function ReviewPanel({ project }: { project: Project }) {
 
   async function run() {
     if (!selected.size) return;
-    setRunning(true); setError(null);
+    setRunning(true); setError(null); setWarning(null);
     try {
-      const r = await api<{ review: Review; items: ReviewItem[] }>(`/api/projects/${pid}/review`, { method: "POST", json: { perspectives: [...selected] } });
+      const r = await api<{ review: Review; items: ReviewItem[]; warning?: string }>(`/api/projects/${pid}/review`, { method: "POST", json: { perspectives: [...selected] } });
       setReview(r.review); setItems(r.items);
+      if (r.warning) setWarning(r.warning);
     } catch (e) { setError((e as Error).message); } finally { setRunning(false); }
   }
 
@@ -93,9 +95,12 @@ export function ReviewPanel({ project }: { project: Project }) {
           ))}
         </div>
         <button className="btn btn-primary btn-sm w-full" disabled={running || !selected.size} onClick={run}>
-          {running ? <Spinner /> : review ? <RotateCw size={14} /> : <ClipboardCheck size={14} />} {running ? "검토 중… (최대 1~2분)" : review ? "다시 검토" : "검토 시작"}
+          {running ? <Spinner /> : review ? <RotateCw size={14} /> : <ClipboardCheck size={14} />}
+          {running ? (selected.has("edge_case") ? "검토 중… (정합성 감사 포함, 최대 3~5분)" : "검토 중… (최대 1~2분)") : review ? "다시 검토" : "검토 시작"}
         </button>
+        {selected.has("edge_case") && <p className="text-[11px] text-muted">정합성 감사는 요구사항을 분해해 상태·경계값·비정상 흐름·5W1H를 기계적으로 훑는 심층 감사이며, Claude Fable 5.1로 실행됩니다. 시간이 더 걸립니다.</p>}
         {error && <div className="text-xs text-danger">{error}</div>}
+        {warning && <div className="text-xs text-warn">일부 관점 실행 실패: {warning}</div>}
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-4">
@@ -109,8 +114,10 @@ export function ReviewPanel({ project }: { project: Project }) {
               {list.map((it) => (
                 <div key={it.id} className={clsx("rounded-md border p-2.5 text-xs", it.status === "resolved" && "opacity-50", it.status === "hold" && "opacity-75")}>
                   <div className="flex items-center gap-1.5 mb-1">
-                    {it.severity === "warn" ? <AlertTriangle size={12} className="text-warn shrink-0" /> : <Lightbulb size={12} className="text-accent shrink-0" />}
-                    <span className={clsx("chip border-transparent !py-0", it.severity === "warn" ? "bg-warn-soft text-warn" : "bg-accent-soft text-accent")}>{it.severity === "warn" ? "주의" : "제안"}</span>
+                    {it.severity === "critical" ? <AlertTriangle size={12} className="text-danger shrink-0" /> : it.severity === "warn" ? <AlertTriangle size={12} className="text-warn shrink-0" /> : <Lightbulb size={12} className="text-accent shrink-0" />}
+                    <span className={clsx("chip border-transparent !py-0", it.severity === "critical" ? "bg-danger/10 text-danger" : it.severity === "warn" ? "bg-warn-soft text-warn" : "bg-accent-soft text-accent")}>
+                      {it.severity === "critical" ? "S1 · 심각" : it.severity === "warn" ? "주의" : "제안"}
+                    </span>
                     <button className="text-[11px] text-muted hover:text-accent hover:underline truncate ml-auto" onClick={() => goTo(it)}>{it.targetLabel}</button>
                   </div>
                   <div className="font-medium mb-1">{it.title}</div>
