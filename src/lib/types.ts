@@ -71,6 +71,8 @@ export interface Item {
   priority: Priority;
   status: Status;
   data: RequirementData | FeatureData | SpecData;
+  /** true while an AI-generated item is awaiting the user's 승인/거절 (shown as "신규" in the tree) */
+  aiProposed: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -174,6 +176,16 @@ export interface FlowNode {
   position: { x: number; y: number };
   /** 기능명세서 아이템 연결 (optional) */
   itemIds?: string[];
+  /** 소속 프레임(스윔레인). 없으면 프레임 밖 */
+  frameId?: string;
+}
+/** 유저플로우 프레임(스윔레인): 상황/시나리오 단위로 노드를 묶는 가로 레인 */
+export interface FlowFrame {
+  id: string;
+  label: string;
+  description?: string;
+  color?: string;
+  order: number;
 }
 export interface FlowEdge {
   id: string;
@@ -188,6 +200,7 @@ export interface Flow {
   request: string;
   nodes: FlowNode[];
   edges: FlowEdge[];
+  frames: FlowFrame[];
   createdAt: string;
   updatedAt: string;
 }
@@ -245,6 +258,7 @@ export interface Attachment {
   size: number;
   text: string; // extracted text
 }
+export type MessageStatus = "streaming" | "done" | "error";
 export interface ChatMessage {
   id: string;
   chatId: string;
@@ -253,6 +267,8 @@ export interface ChatMessage {
   mentions: { type: "prd" | "item" | "flow" | "wireframe"; id: string; label: string }[];
   attachments: Attachment[];
   proposals: Proposal[];
+  /** assistant messages are created as "streaming" by the server job and flipped to done/error when finished */
+  status: MessageStatus;
   createdAt: string;
 }
 

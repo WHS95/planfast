@@ -1,7 +1,7 @@
 import { all, get, run, tx, j, bool } from "@/lib/db";
 import {
   now, rid, defaultAppSettings,
-  type Page, type Flow, type FlowNode, type FlowEdge, type Wireframe, type WireframePage, type Device,
+  type Page, type Flow, type FlowNode, type FlowEdge, type FlowFrame, type MessageStatus, type Wireframe, type WireframePage, type Device,
   type Chat, type ChatMessage, type Review, type ReviewItem, type ReviewPerspective, type Meeting, type Decision,
   type Version, type ProjectSnapshot, type Activity, type Comment, type ShareLink, type ApiKey, type Attachment, type AppSettings,
 } from "@/lib/types";
@@ -52,22 +52,22 @@ export const pages = {
 // ---------------- flows ----------------
 const mapFlow = (r: R): Flow => ({
   id: s(r.id), projectId: s(r.project_id), name: s(r.name), request: s(r.request),
-  nodes: j<FlowNode[]>(r.nodes, []), edges: j<FlowEdge[]>(r.edges, []), createdAt: s(r.created_at), updatedAt: s(r.updated_at),
+  nodes: j<FlowNode[]>(r.nodes, []), edges: j<FlowEdge[]>(r.edges, []), frames: j<FlowFrame[]>(r.frames, []), createdAt: s(r.created_at), updatedAt: s(r.updated_at),
 });
 export const flows = {
   list: (projectId: string) => all("SELECT * FROM flows WHERE project_id=? ORDER BY created_at DESC", projectId).map(mapFlow),
   get: (id: string) => { const r = get("SELECT * FROM flows WHERE id=?", id); return r ? mapFlow(r) : undefined; },
-  create(input: { projectId: string; name: string; request?: string; nodes?: FlowNode[]; edges?: FlowEdge[] }): Flow {
+  create(input: { projectId: string; name: string; request?: string; nodes?: FlowNode[]; edges?: FlowEdge[]; frames?: FlowFrame[] }): Flow {
     const id = rid(); const t = now();
-    run("INSERT INTO flows (id,project_id,name,request,nodes,edges,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
-      id, input.projectId, input.name, input.request ?? "", JSON.stringify(input.nodes ?? []), JSON.stringify(input.edges ?? []), t, t);
+    run("INSERT INTO flows (id,project_id,name,request,nodes,edges,frames,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+      id, input.projectId, input.name, input.request ?? "", JSON.stringify(input.nodes ?? []), JSON.stringify(input.edges ?? []), JSON.stringify(input.frames ?? []), t, t);
     projects.touch(input.projectId);
     return this.get(id)!;
   },
-  update(id: string, patch: Partial<Pick<Flow, "name" | "request" | "nodes" | "edges">>): Flow | undefined {
+  update(id: string, patch: Partial<Pick<Flow, "name" | "request" | "nodes" | "edges" | "frames">>): Flow | undefined {
     const cur = this.get(id); if (!cur) return;
     const n = { ...cur, ...patch };
-    run("UPDATE flows SET name=?, request=?, nodes=?, edges=?, updated_at=? WHERE id=?", n.name, n.request, JSON.stringify(n.nodes), JSON.stringify(n.edges), now(), id);
+    run("UPDATE flows SET name=?, request=?, nodes=?, edges=?, frames=?, updated_at=? WHERE id=?", n.name, n.request, JSON.stringify(n.nodes), JSON.stringify(n.edges), JSON.stringify(n.frames), now(), id);
     projects.touch(cur.projectId);
     return this.get(id);
   },
@@ -120,7 +120,8 @@ export const wireframes = {
 const mapChat = (r: R): Chat => ({ id: s(r.id), projectId: s(r.project_id), title: s(r.title), createdAt: s(r.created_at) });
 const mapMsg = (r: R): ChatMessage => ({
   id: s(r.id), chatId: s(r.chat_id), role: r.role as ChatMessage["role"], content: s(r.content),
-  mentions: j(r.mentions, []), attachments: j(r.attachments, []), proposals: j(r.proposals, []), createdAt: s(r.created_at),
+  mentions: j(r.mentions, []), attachments: j(r.attachments, []), proposals: j(r.proposals, []),
+  status: ((r.status as string) || "done") as MessageStatus, createdAt: s(r.created_at),
 });
 export const chats = {
   list: (projectId: string) => all("SELECT * FROM chats WHERE project_id=? ORDER BY created_at DESC", projectId).map(mapChat),
@@ -129,15 +130,15 @@ export const chats = {
   rename(id: string, title: string) { run("UPDATE chats SET title=? WHERE id=?", title, id); },
   remove(id: string) { run("DELETE FROM messages WHERE chat_id=?", id); run("DELETE FROM chats WHERE id=?", id); },
   messages: (chatId: string) => all("SELECT * FROM messages WHERE chat_id=? ORDER BY created_at", chatId).map(mapMsg),
-  addMessage(input: Omit<ChatMessage, "id" | "createdAt"> & { id?: string }): ChatMessage {
+  addMessage(input: Omit<ChatMessage, "id" | "createdAt" | "status"> & { id?: string; status?: MessageStatus }): ChatMessage {
     const id = input.id ?? rid();
-    run("INSERT INTO messages (id,chat_id,role,content,mentions,attachments,proposals,created_at) VALUES (?,?,?,?,?,?,?,?)",
-      id, input.chatId, input.role, input.content, JSON.stringify(input.mentions ?? []), JSON.stringify(input.attachments ?? []), JSON.stringify(input.proposals ?? []), now());
+    run("INSERT INTO messages (id,chat_id,role,content,mentions,attachments,proposals,status,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+      id, input.chatId, input.role, input.content, JSON.stringify(input.mentions ?? []), JSON.stringify(input.attachments ?? []), JSON.stringify(input.proposals ?? []), input.status ?? "done", now());
     return get("SELECT * FROM messages WHERE id=?", id) ? mapMsg(get("SELECT * FROM messages WHERE id=?", id)!) : (undefined as never);
   },
-  updateMessage(id: string, patch: Partial<Pick<ChatMessage, "content" | "proposals">>) {
+  updateMessage(id: string, patch: Partial<Pick<ChatMessage, "content" | "proposals" | "status">>) {
     const r = get("SELECT * FROM messages WHERE id=?", id); if (!r) return; const cur = mapMsg(r); const n = { ...cur, ...patch };
-    run("UPDATE messages SET content=?, proposals=? WHERE id=?", n.content, JSON.stringify(n.proposals), id);
+    run("UPDATE messages SET content=?, proposals=?, status=? WHERE id=?", n.content, JSON.stringify(n.proposals), n.status, id);
     return mapMsg(get("SELECT * FROM messages WHERE id=?", id)!);
   },
 };

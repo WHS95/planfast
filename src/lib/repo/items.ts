@@ -1,4 +1,4 @@
-import { all, get, run, tx, j } from "@/lib/db";
+import { all, get, run, tx, j, bool } from "@/lib/db";
 import { now, rid, type Item, type ItemType, type Priority, type Status } from "@/lib/types";
 import { projects } from "./projects";
 
@@ -14,6 +14,7 @@ function map(r: Record<string, unknown>): Item {
     priority: r.priority as Priority,
     status: r.status as Status,
     data: j(r.data, {}) as Item["data"],
+    aiProposed: bool(r.ai_proposed),
     createdAt: r.created_at as string,
     updatedAt: r.updated_at as string,
   };
@@ -21,7 +22,7 @@ function map(r: Record<string, unknown>): Item {
 
 export interface CreateItemInput {
   projectId: string; type: ItemType; parentId?: string | null; title?: string; description?: string;
-  priority?: Priority; status?: Status; data?: Partial<Item["data"]>; order?: number; id?: string;
+  priority?: Priority; status?: Status; data?: Partial<Item["data"]>; order?: number; id?: string; aiProposed?: boolean;
 }
 
 function defaultData(type: ItemType): Item["data"] {
@@ -46,20 +47,20 @@ export const items = {
       input.projectId, input.parentId ?? null, input.parentId ?? null,
     )?.m ?? -1) + 1);
     run(
-      'INSERT INTO items (id,project_id,type,parent_id,"order",title,description,priority,status,data,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+      'INSERT INTO items (id,project_id,type,parent_id,"order",title,description,priority,status,data,ai_proposed,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
       id, input.projectId, input.type, input.parentId ?? null, order, input.title ?? "", input.description ?? "",
-      input.priority ?? "medium", input.status ?? "writing", JSON.stringify({ ...defaultData(input.type), ...(input.data ?? {}) }), t, t,
+      input.priority ?? "medium", input.status ?? "writing", JSON.stringify({ ...defaultData(input.type), ...(input.data ?? {}) }), input.aiProposed ? 1 : 0, t, t,
     );
     projects.touch(input.projectId);
     return this.get(id)!;
   },
-  update(id: string, patch: Partial<Pick<Item, "title" | "description" | "priority" | "status" | "parentId" | "order">> & { data?: Partial<Item["data"]> }): Item | undefined {
+  update(id: string, patch: Partial<Pick<Item, "title" | "description" | "priority" | "status" | "parentId" | "order" | "aiProposed">> & { data?: Partial<Item["data"]> }): Item | undefined {
     const cur = this.get(id);
     if (!cur) return undefined;
     const next = { ...cur, ...patch, data: patch.data ? { ...cur.data, ...patch.data } : cur.data };
     run(
-      'UPDATE items SET title=?, description=?, priority=?, status=?, parent_id=?, "order"=?, data=?, updated_at=? WHERE id=?',
-      next.title, next.description, next.priority, next.status, next.parentId, next.order, JSON.stringify(next.data), now(), id,
+      'UPDATE items SET title=?, description=?, priority=?, status=?, parent_id=?, "order"=?, data=?, ai_proposed=?, updated_at=? WHERE id=?',
+      next.title, next.description, next.priority, next.status, next.parentId, next.order, JSON.stringify(next.data), next.aiProposed ? 1 : 0, now(), id,
     );
     projects.touch(cur.projectId);
     return this.get(id);

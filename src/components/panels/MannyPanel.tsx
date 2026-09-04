@@ -95,7 +95,7 @@ export function MannyPanel({ project }: { project: Project }) {
     setBusy(true); setError(null); setPhase(0);
     const optimistic: ChatMessage | null = opts.kickoff === "ask" ? null : {
       id: "tmp-" + Date.now(), chatId: id, role: "user", content: opts.content, mentions: opts.mentions ?? [],
-      attachments: (opts.attachmentIds ?? []).map((aid) => ({ id: aid, name: atts.find((a) => a.id === aid)?.name ?? "파일", mime: "", size: 0, text: "" })), proposals: [], createdAt: new Date().toISOString(),
+      attachments: (opts.attachmentIds ?? []).map((aid) => ({ id: aid, name: atts.find((a) => a.id === aid)?.name ?? "파일", mime: "", size: 0, text: "" })), proposals: [], status: "done", createdAt: new Date().toISOString(),
     };
     if (optimistic) setMessages((ms) => [...ms, optimistic]);
     try {

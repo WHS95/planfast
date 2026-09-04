@@ -98,8 +98,20 @@ export function getDb(): DatabaseSync {
   const db = new DatabaseSync(DB_PATH);
   db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
   db.exec(SCHEMA);
+  migrate(db);
   globalThis.__planfastDb = db;
   return db;
+}
+
+/** Additive column migrations (tables are created with IF NOT EXISTS, so new columns need ALTER TABLE). */
+function migrate(db: DatabaseSync) {
+  const ensureColumn = (table: string, column: string, ddl: string) => {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (!cols.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  };
+  ensureColumn("messages", "status", "TEXT NOT NULL DEFAULT 'done'");
+  ensureColumn("items", "ai_proposed", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn("flows", "frames", "TEXT NOT NULL DEFAULT '[]'");
 }
 
 // ---- helpers ---------------------------------------------------------------
