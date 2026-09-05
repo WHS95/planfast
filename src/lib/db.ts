@@ -7,7 +7,10 @@ const DB_PATH = path.join(DATA_DIR, "planfast.db");
 
 declare global {
   var __planfastDb: DatabaseSync | undefined;
+  var __planfastMigration: number | undefined;
 }
+/** Bump when migrate() gains a step — the dev server keeps the DB handle across hot reloads, so a cached handle must re-run new migrations. */
+const MIGRATION_VERSION = 1;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS projects (
@@ -93,12 +96,16 @@ CREATE TABLE IF NOT EXISTS app_settings (
 `;
 
 export function getDb(): DatabaseSync {
-  if (globalThis.__planfastDb) return globalThis.__planfastDb;
+  if (globalThis.__planfastDb) {
+    if (globalThis.__planfastMigration !== MIGRATION_VERSION) { migrate(globalThis.__planfastDb); globalThis.__planfastMigration = MIGRATION_VERSION; }
+    return globalThis.__planfastDb;
+  }
   fs.mkdirSync(DATA_DIR, { recursive: true });
   const db = new DatabaseSync(DB_PATH);
   db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
   db.exec(SCHEMA);
   migrate(db);
+  globalThis.__planfastMigration = MIGRATION_VERSION;
   globalThis.__planfastDb = db;
   return db;
 }
