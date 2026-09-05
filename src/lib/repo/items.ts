@@ -76,7 +76,16 @@ export const items = {
       changed = false;
       for (const it of allItems) if (it.parentId && toDelete.has(it.parentId) && !toDelete.has(it.id)) { toDelete.add(it.id); changed = true; }
     }
-    tx(() => { for (const d of toDelete) run("DELETE FROM items WHERE id=?", d); });
+    tx(() => {
+      for (const d of toDelete) run("DELETE FROM items WHERE id=?", d);
+      // 정보구조도 페이지가 삭제된 상세기능을 계속 참조하지 않도록 정리 (repo 순환 참조를 피하려고 pages 테이블에 직접 접근)
+      const pageRows = all<{ id: string; linked_spec_ids: string }>("SELECT id, linked_spec_ids FROM pages WHERE project_id=?", cur.projectId);
+      for (const row of pageRows) {
+        const ids = j<string[]>(row.linked_spec_ids, []);
+        const next = ids.filter((x) => !toDelete.has(x));
+        if (next.length !== ids.length) run("UPDATE pages SET linked_spec_ids=? WHERE id=?", JSON.stringify(next), row.id);
+      }
+    });
     projects.touch(cur.projectId);
     return [...toDelete];
   },

@@ -36,6 +36,10 @@ function Inner({ pages, specs, view, selectedId, onSelect, onReparent }: Props) 
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
   const specName = useMemo(() => new Map(specs.map((s) => [s.id, s.title])), [specs]);
+  // Structural signature (which pages exist + their parent/hierarchy + view mode). Editing a page's
+  // name/description/linkedSpecIds does NOT change this, so plain field edits no longer reset zoom/pan —
+  // only actual additions/removals/reparenting or a detail↔simple view switch trigger a refit.
+  const lastFitKey = useRef<string | null>(null);
 
   // derive nodes/edges + dagre layout from pages
   useEffect(() => {
@@ -48,8 +52,12 @@ function Inner({ pages, specs, view, selectedId, onSelect, onReparent }: Props) 
     })));
     const ids = new Set(pages.map((p) => p.id));
     setEdges(pages.filter((p) => p.parentId && ids.has(p.parentId)).map((p) => ({ id: `e_${p.parentId}_${p.id}`, source: p.parentId!, target: p.id, type: "smoothstep", style: { stroke: "var(--line)", strokeWidth: 1.5 } })));
-    const t = setTimeout(() => rf.fitView({ padding: 0.2, duration: 200, maxZoom: 1 }), 30);
-    return () => clearTimeout(t);
+    const fitKey = view + "|" + pages.map((p) => `${p.id}:${p.parentId ?? ""}`).sort().join(",");
+    if (lastFitKey.current !== fitKey) {
+      lastFitKey.current = fitKey;
+      const t = setTimeout(() => rf.fitView({ padding: 0.2, duration: 200, maxZoom: 1 }), 30);
+      return () => clearTimeout(t);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pages, view, specName]);
 
