@@ -372,6 +372,7 @@ export function applyProposal(projectId: string, message: ChatMessage, proposalI
     if (items.get(ref)) return ref;
     const dep = byTemp.get(ref);
     if (!dep) return null;
+    if (dep.status === "rejected") throw new Error(`참조된 항목이 거절되어 반영할 수 없습니다: ${dep.summary}`);
     if (dep.status !== "accepted") applyOne(dep);
     return dep.resultId ?? null;
   };

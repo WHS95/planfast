@@ -220,14 +220,14 @@ export const versions = {
       this.create(v.projectId, `복원 전 자동 저장 (${new Date().toLocaleString("ko-KR")})`, true);
       projects.update(v.projectId, { title: snap.project.title, description: snap.project.description, prd: snap.project.prd, settings: snap.project.settings });
       run("DELETE FROM items WHERE project_id=?", v.projectId);
-      for (const it of snap.items) run('INSERT INTO items (id,project_id,type,parent_id,"order",title,description,priority,status,data,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-        it.id, v.projectId, it.type, it.parentId, it.order, it.title, it.description, it.priority, it.status, JSON.stringify(it.data), it.createdAt, it.updatedAt);
+      for (const it of snap.items) run('INSERT INTO items (id,project_id,type,parent_id,"order",title,description,priority,status,data,ai_proposed,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        it.id, v.projectId, it.type, it.parentId, it.order, it.title, it.description, it.priority, it.status, JSON.stringify(it.data), it.aiProposed ? 1 : 0, it.createdAt, it.updatedAt);
       run("DELETE FROM pages WHERE project_id=?", v.projectId);
       for (const p of snap.pages) run('INSERT INTO pages (id,project_id,parent_id,"order",name,description,linked_spec_ids,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)',
         p.id, v.projectId, p.parentId, p.order, p.name, p.description, JSON.stringify(p.linkedSpecIds), p.createdAt, p.updatedAt);
       run("DELETE FROM flows WHERE project_id=?", v.projectId);
-      for (const f of snap.flows) run("INSERT INTO flows (id,project_id,name,request,nodes,edges,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
-        f.id, v.projectId, f.name, f.request, JSON.stringify(f.nodes), JSON.stringify(f.edges), f.createdAt, f.updatedAt);
+      for (const f of snap.flows) run("INSERT INTO flows (id,project_id,name,request,nodes,edges,frames,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        f.id, v.projectId, f.name, f.request, JSON.stringify(f.nodes), JSON.stringify(f.edges), JSON.stringify(f.frames ?? []), f.createdAt, f.updatedAt);
     });
   },
   remove(id: string) { run("DELETE FROM versions WHERE id=?", id); },

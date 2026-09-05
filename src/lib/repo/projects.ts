@@ -80,9 +80,9 @@ export const projects = {
       for (const it of items) idMap.set(it.id as string, rid());
       for (const it of items) {
         run(
-          "INSERT INTO items (id,project_id,type,parent_id,\"order\",title,description,priority,status,data,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+          "INSERT INTO items (id,project_id,type,parent_id,\"order\",title,description,priority,status,data,ai_proposed,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
           idMap.get(it.id as string), copy.id, it.type, it.parent_id ? idMap.get(it.parent_id as string) ?? null : null,
-          it.order, it.title, it.description, it.priority, it.status, it.data, t, t,
+          it.order, it.title, it.description, it.priority, it.status, it.data, it.ai_proposed ?? 0, t, t,
         );
       }
       const pageMap = new Map<string, string>();
@@ -97,8 +97,8 @@ export const projects = {
         );
       }
       for (const f of all("SELECT * FROM flows WHERE project_id=?", id)) {
-        run("INSERT INTO flows (id,project_id,name,request,nodes,edges,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
-          rid(), copy.id, f.name, f.request, f.nodes, f.edges, t, t);
+        run("INSERT INTO flows (id,project_id,name,request,nodes,edges,frames,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+          rid(), copy.id, f.name, f.request, f.nodes, f.edges, f.frames ?? "[]", t, t);
       }
       return copy;
     });
