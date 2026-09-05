@@ -7,7 +7,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { broadcastChange, useEditor } from "@/components/editor/EditorContext";
 import type { Item, ItemType, Priority, Status } from "@/lib/types";
-import type { BulkItemInput, ItemInput } from "@/app/api/projects/[id]/items/route";
+import type { ItemInput } from "@/app/api/projects/[id]/items/route";
+import type { ProposalAction, ProposalsResult } from "@/app/api/projects/[id]/items/proposals/route";
 import { childrenOf, descendantIds } from "./utils";
 
 export type ItemPatch = Partial<Pick<Item, "title" | "description" | "priority" | "status">> & { data?: Item["data"] };
@@ -19,10 +20,11 @@ export interface ItemStore {
   children: (parentId: string | null) => Item[];
   update: (id: string, patch: ItemPatch) => void;
   create: (input: ItemInput) => Promise<Item>;
-  bulkCreate: (rows: BulkItemInput[]) => Promise<Item[]>;
   remove: (id: string) => Promise<void>;
   /** move item under `parentId` at `index` among its siblings */
   move: (id: string, parentId: string | null, index: number) => Promise<void>;
+  /** approve/reject AI proposals in one server round-trip. `ids` omitted → every proposal in the project */
+  resolveProposals: (action: ProposalAction, ids?: string[]) => Promise<void>;
   reload: () => Promise<void>;
 }
 
@@ -97,13 +99,6 @@ export function useItemStore(projectId: string, initial: Item[]): ItemStore {
     return created;
   }, [base, projectId]);
 
-  const bulkCreate = useCallback(async (rows: BulkItemInput[]) => {
-    const created = await api<Item[]>(base, { method: "POST", json: { items: rows } });
-    setItems((list) => [...list, ...created]);
-    broadcastChange(projectId);
-    return created;
-  }, [base, projectId]);
-
   const remove = useCallback(async (id: string) => {
     const gone = new Set([id, ...descendantIds(itemsRef.current, id)]);
     for (const g of gone) { const p = pending.current.get(g); if (p) { clearTimeout(p.timer); pending.current.delete(g); } }
@@ -122,10 +117,28 @@ export function useItemStore(projectId: string, initial: Item[]): ItemStore {
     broadcastChange(projectId);
   }, [base, projectId]);
 
+  const resolveProposals = useCallback(async (action: ProposalAction, ids?: string[]) => {
+    const list = itemsRef.current;
+    const roots = ids?.length ? ids : list.filter((x) => x.aiProposed).map((x) => x.id);
+    const scope = new Set<string>();
+    for (const r of roots) { scope.add(r); for (const d of descendantIds(list, r)) scope.add(d); }
+    if (action === "reject") {
+      for (const g of scope) { const p = pending.current.get(g); if (p) { clearTimeout(p.timer); pending.current.delete(g); } }
+      setDirty(pending.current.size);
+      setItems((cur) => cur.filter((x) => !scope.has(x.id)));
+    } else {
+      setItems((cur) => cur.map((x) => (scope.has(x.id) && x.aiProposed ? { ...x, aiProposed: false, status: x.status === "proposed" ? "writing" : x.status } : x)));
+    }
+    const r = await api<ProposalsResult>(`${base}/proposals`, { method: "POST", json: { action, ids } });
+    setItems((local) => r.items.map((s) => (pending.current.has(s.id) ? local.find((l) => l.id === s.id) ?? s : s)));
+    broadcastChange(projectId);
+  }, [base, projectId]);
+
   const byId = useMemo(() => new Map(items.map((x) => [x.id, x])), [items]);
   const children = useCallback((parentId: string | null) => childrenOf(items, parentId), [items]);
 
-  return useMemo<ItemStore>(() => ({ items, byId, saving: inflight > 0 || dirty > 0, children, update, create, bulkCreate, remove, move, reload }), [items, byId, inflight, dirty, children, update, create, bulkCreate, remove, move, reload]);
+  return useMemo<ItemStore>(() => ({ items, byId, saving: inflight > 0 || dirty > 0, children, update, create, remove, move, resolveProposals, reload }),
+    [items, byId, inflight, dirty, children, update, create, remove, move, resolveProposals, reload]);
 }
 
 export type { ItemType, Priority, Status };

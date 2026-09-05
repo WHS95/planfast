@@ -47,3 +47,36 @@ export function matchesQuery(it: Item, q: string): boolean {
   const s = q.trim().toLowerCase();
   return !!s && searchText(it).includes(s);
 }
+
+/** Per-requirement accent palette. A requirement gets PALETTE[index] and passes it to its subtree. */
+export const PALETTE = ["#10b981", "#14b8a6", "#3b82f6", "#8b5cf6", "#84cc16", "#f59e0b", "#ec4899", "#06b6d4"] as const;
+
+/** id → "1", "1.2", "1.2.3" in depth-first tree order (independent of collapse state) */
+export function numberMap(list: Item[]): Map<string, string> {
+  const m = new Map<string, string>();
+  const walk = (pid: string | null, prefix: string) => {
+    childrenOf(list, pid).forEach((c, i) => {
+      const n = prefix ? `${prefix}.${i + 1}` : `${i + 1}`;
+      m.set(c.id, n);
+      walk(c.id, n);
+    });
+  };
+  walk(null, "");
+  return m;
+}
+
+/** id → hex colour of its root requirement */
+export function colorMap(list: Item[]): Map<string, string> {
+  const m = new Map<string, string>();
+  childrenOf(list, null).forEach((root, i) => {
+    const c = PALETTE[i % PALETTE.length];
+    const walk = (it: Item) => { m.set(it.id, c); for (const k of childrenOf(list, it.id)) walk(k); };
+    walk(root);
+  });
+  return m;
+}
+
+/** `color` mixed into a surface/border colour — soft tints that work in both themes */
+export function tint(color: string, pct: number, onto = "var(--panel)"): string {
+  return `color-mix(in srgb, ${color} ${pct}%, ${onto})`;
+}

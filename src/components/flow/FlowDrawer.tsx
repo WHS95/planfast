@@ -1,9 +1,10 @@
 "use client";
 import { useState } from "react";
 import { MessageSquare, Trash2, X } from "lucide-react";
-import { FLOW_NODE_LABEL, FLOW_NODE_TYPES, type FlowEdge, type FlowNode, type FlowNodeType } from "@/lib/types";
+import { FLOW_NODE_LABEL, FLOW_NODE_TYPES, type FlowEdge, type FlowFrame, type FlowNode, type FlowNodeType } from "@/lib/types";
+import { FRAME_COLORS, FRAME_COLOR_LABEL, frameTint, isFrameColor } from "@/lib/flow/frames";
 
-export function NodeDrawer({ node, onChange, onDelete, onAsk, onClose }: { node: FlowNode; onChange: (patch: Partial<Pick<FlowNode, "label" | "description" | "type">>) => void; onDelete: () => void; onAsk: () => void; onClose: () => void }) {
+export function NodeDrawer({ node, frames, onChange, onFrameChange, onDelete, onAsk, onClose }: { node: FlowNode; frames: FlowFrame[]; onChange: (patch: Partial<Pick<FlowNode, "label" | "description" | "type">>) => void; onFrameChange: (frameId: string | null) => void; onDelete: () => void; onAsk: () => void; onClose: () => void }) {
   const [synced, setSynced] = useState<{ id: string; label: string; description: string }>({ id: node.id, label: node.label, description: node.description });
   const [label, setLabel] = useState(node.label);
   const [desc, setDesc] = useState(node.description);
@@ -35,6 +36,15 @@ export function NodeDrawer({ node, onChange, onDelete, onAsk, onClose }: { node:
           <label className="text-[11px] font-medium text-muted">설명</label>
           <textarea className="input mt-1 min-h-[100px] resize-y" value={desc} placeholder="이 단계에서 일어나는 일" onChange={(e) => { setDesc(e.target.value); onChange({ description: e.target.value }); }} />
         </div>
+        {frames.length > 0 && (
+          <div>
+            <label className="text-[11px] font-medium text-muted">프레임 (상황·시나리오)</label>
+            <select className="input mt-1" value={node.frameId ?? ""} onChange={(e) => onFrameChange(e.target.value || null)}>
+              <option value="">프레임 없음</option>
+              {frames.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+            </select>
+          </div>
+        )}
         <p className="text-[11px] text-muted">노드를 선택하고 Delete 키를 누르면 삭제됩니다. 노드 오른쪽 점을 드래그해 다른 노드에 연결하세요.</p>
       </div>
       <div className="border-t p-3">
@@ -70,6 +80,54 @@ export function EdgeDrawer({ edge, nodes, onChange, onDelete, onClose }: { edge:
       </div>
       <div className="border-t p-3">
         <button className="btn btn-sm btn-ghost text-danger w-full justify-start" onClick={onDelete}><Trash2 size={13} /> 연결 삭제</button>
+      </div>
+    </div>
+  );
+}
+
+export function FrameDrawer({ frame, count, onChange, onDelete, onClose }: { frame: FlowFrame; count: number; onChange: (patch: Partial<Pick<FlowFrame, "label" | "description" | "color">>) => void; onDelete: () => void; onClose: () => void }) {
+  const [synced, setSynced] = useState<{ id: string; label: string; description: string }>({ id: frame.id, label: frame.label, description: frame.description ?? "" });
+  const [label, setLabel] = useState(frame.label);
+  const [desc, setDesc] = useState(frame.description ?? "");
+  if (synced.id !== frame.id || synced.label !== frame.label || synced.description !== (frame.description ?? "")) {
+    setSynced({ id: frame.id, label: frame.label, description: frame.description ?? "" });
+    setLabel(frame.label); setDesc(frame.description ?? "");
+  }
+  const color = isFrameColor(frame.color) ? frame.color : "neutral";
+  return (
+    <div className="w-80 shrink-0 border-l bg-panel flex flex-col min-h-0">
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b">
+        <div className="text-xs text-muted flex-1 truncate">프레임 편집 · 노드 {count}개</div>
+        <button className="btn btn-icon text-muted" onClick={onClose}><X size={14} /></button>
+      </div>
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+        <div>
+          <label className="text-[11px] font-medium text-muted">이름 (상황·시나리오)</label>
+          <input autoFocus className="input mt-1" value={label} placeholder="예: 가입·인증" onChange={(e) => { setLabel(e.target.value); onChange({ label: e.target.value }); }} />
+        </div>
+        <div>
+          <label className="text-[11px] font-medium text-muted">설명</label>
+          <textarea className="input mt-1 min-h-[80px] resize-y" value={desc} placeholder="이 상황에서 사용자가 하려는 일" onChange={(e) => { setDesc(e.target.value); onChange({ description: e.target.value }); }} />
+        </div>
+        <div>
+          <label className="text-[11px] font-medium text-muted">색</label>
+          <div className="flex flex-wrap gap-1.5 mt-1.5">
+            {FRAME_COLORS.map((c) => {
+              const tint = frameTint(c, 0);
+              return (
+                <button key={c} onClick={() => onChange({ color: c })} title={FRAME_COLOR_LABEL[c]}
+                  className={`w-7 h-7 rounded-md border flex items-center justify-center ${color === c ? "border-accent ring-2 ring-accent/30" : ""}`}
+                  style={{ background: tint.bg }}>
+                  <i className="w-2.5 h-2.5 rounded-full" style={{ background: tint.dot }} />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <p className="text-[11px] text-muted">프레임을 끌면 안에 있는 노드가 함께 움직입니다. 모서리를 끌어 크기를 바꿀 수 있어요.</p>
+      </div>
+      <div className="border-t p-3">
+        <button className="btn btn-sm btn-ghost text-danger w-full justify-start" onClick={onDelete}><Trash2 size={13} /> 프레임 삭제 (노드는 유지)</button>
       </div>
     </div>
   );

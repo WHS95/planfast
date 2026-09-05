@@ -1,6 +1,7 @@
 import { handler, ok, bad, notFound, type Params } from "@/lib/http";
 import { flows, activity } from "@/lib/repo";
-import { FLOW_NODE_TYPES, type FlowEdge, type FlowNode } from "@/lib/types";
+import { FLOW_NODE_TYPES, type FlowEdge, type FlowFrame, type FlowNode } from "@/lib/types";
+import { sanitizeFrames } from "@/lib/flow/sanitize";
 
 export const GET = handler(async (_req, { params }: Params<"id" | "flowId">) => {
   const { id, flowId } = await params;
@@ -8,19 +9,27 @@ export const GET = handler(async (_req, { params }: Params<"id" | "flowId">) => 
   return f && f.projectId === id ? ok(f) : notFound();
 });
 
-/** PATCH { name?, request?, nodes?, edges? } */
+/** PATCH { name?, request?, nodes?, edges?, frames? } */
 export const PATCH = handler(async (req, { params }: Params<"id" | "flowId">) => {
   const { id, flowId } = await params;
   const cur = flows.get(flowId);
   if (!cur || cur.projectId !== id) return notFound();
-  const body = (await req.json().catch(() => ({}))) as { name?: string; request?: string; nodes?: FlowNode[]; edges?: FlowEdge[] };
+  const body = (await req.json().catch(() => ({}))) as { name?: string; request?: string; nodes?: FlowNode[]; edges?: FlowEdge[]; frames?: FlowFrame[] };
   const patch: Parameters<typeof flows.update>[1] = {};
   if (typeof body.name === "string") { if (!body.name.trim()) return bad("name required"); patch.name = body.name.trim(); }
   if (typeof body.request === "string") patch.request = body.request;
+  // 프레임을 먼저 정리해야 노드의 frameId 유효성 검사가 가능하다.
+  if (Array.isArray(body.frames)) patch.frames = sanitizeFrames(body.frames);
+  const frameIds = new Set((patch.frames ?? cur.frames).map((f) => f.id));
   if (Array.isArray(body.nodes)) {
     patch.nodes = body.nodes
       .filter((n) => n && typeof n.id === "string" && FLOW_NODE_TYPES.includes(n.type))
-      .map((n) => ({ id: n.id, type: n.type, label: String(n.label ?? ""), description: String(n.description ?? ""), position: { x: Number(n.position?.x ?? 0), y: Number(n.position?.y ?? 0) }, ...(n.itemIds ? { itemIds: n.itemIds } : {}) }));
+      .map((n) => ({
+        id: n.id, type: n.type, label: String(n.label ?? ""), description: String(n.description ?? ""),
+        position: { x: Number(n.position?.x ?? 0), y: Number(n.position?.y ?? 0) },
+        ...(n.itemIds ? { itemIds: n.itemIds } : {}),
+        ...(n.frameId && frameIds.has(n.frameId) ? { frameId: n.frameId } : {}),
+      }));
   }
   if (Array.isArray(body.edges)) {
     const ids = new Set((patch.nodes ?? cur.nodes).map((n) => n.id));

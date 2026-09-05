@@ -33,13 +33,13 @@ export function HomeComposer() {
   }
 
   return (
-    <div className="card p-3 shadow-sm">
+    <div className="card p-3 shadow-[var(--shadow-2)] transition-shadow duration-200 focus-within:shadow-[var(--shadow-3)]">
       <div className="flex gap-1 mb-2">
         <ModeBtn active={mode === "ask"} onClick={() => setMode("ask")} icon={<MessageCircleQuestion size={14} />}>AI 질문으로 시작</ModeBtn>
         <ModeBtn active={mode === "files"} onClick={() => setMode("files")} icon={<FileText size={14} />}>내 자료로 시작</ModeBtn>
       </div>
       <textarea
-        className="w-full bg-transparent outline-none resize-none px-2 py-1 min-h-[88px]"
+        className="autogrow w-full bg-transparent outline-none resize-none px-2 py-1 min-h-[88px] max-h-[40vh] overflow-y-auto"
         placeholder={mode === "ask" ? "만들고 싶은 제품이나 서비스의 주제와 배경을 적어주세요. 예) 러닝 크루 기여도를 기록하고 월말 정산하는 앱" : "회의록·기존 기획 자료를 첨부하고, 보충 설명을 적어주세요. (PDF, DOCX, TXT, MD 최대 10개)"}
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -48,13 +48,13 @@ export function HomeComposer() {
       {files.length > 0 && (
         <div className="flex flex-wrap gap-1 px-2 pb-2">
           {files.map((f, i) => (
-            <span key={i} className="chip">{f.name}<button onClick={() => setFiles(files.filter((_, j) => j !== i))}><X size={12} /></button></span>
+            <span key={i} className="chip">{f.name}<button aria-label={`${f.name} 제거`} onClick={() => setFiles((cur) => cur.filter((_, j) => j !== i))}><X size={12} /></button></span>
           ))}
         </div>
       )}
       <div className="flex items-center justify-between px-1">
         <div>
-          <input ref={fileRef} type="file" multiple hidden accept=".pdf,.docx,.txt,.md,.csv,.json,.hwp,.hwpx,.xlsx" onChange={(e) => setFiles([...files, ...Array.from(e.target.files ?? [])].slice(0, 10))} />
+          <input ref={fileRef} type="file" multiple hidden accept=".pdf,.docx,.txt,.md,.csv,.json,.hwp,.hwpx,.xlsx" onChange={(e) => { const picked = Array.from(e.target.files ?? []); setFiles((cur) => [...cur, ...picked].slice(0, 10)); e.target.value = ""; }} />
           <button className="btn btn-ghost btn-sm" onClick={() => fileRef.current?.click()}><Paperclip size={14} /> 파일 첨부</button>
         </div>
         <div className="flex items-center gap-2">

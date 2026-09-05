@@ -1,19 +1,30 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Bot, Plus, History, Trash2, Paperclip, ArrowUp, X, AtSign, Check, Loader2 } from "lucide-react";
+import { Bot, Plus, History, Trash2, Paperclip, ArrowUp, X, AtSign, Check, Loader2, Clock } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import clsx from "clsx";
 import type { Chat, ChatMessage, Project } from "@/lib/types";
 import { api } from "@/lib/api";
 import { useEditor, broadcastChange } from "@/components/editor/EditorContext";
 import { Markdown } from "@/components/manny/Markdown";
+import { StreamingReply } from "@/components/manny/StreamingReply";
 import { ProposalCard } from "@/components/manny/ProposalCard";
 import { MentionPicker, type MentionChip, type MentionIndex } from "@/components/manny/MentionPicker";
 
 type ChatRow = Chat & { messageCount: number; pendingProposals: number };
 type Att = { id: string; name: string; size: number };
-const PHASES = ["문서 읽는 중…", "생각하는 중…", "작성 중…"];
+/** 전송 대기열 항목 — chatId 를 함께 들고 다녀야 대화를 바꿔도 엉뚱한 방으로 안 간다 */
+type Queued = { key: string; content: string; mentions: MentionChip[]; attachmentIds: string[]; chatId: string };
+
 const QUICK = ["PRD 검토해줘", "기능 누락 찾아줘", "요구사항 요약"];
+const POLL_MS = 700;
+
+/** 서버 목록을 정본으로 받되, 아직 서버에 없는 낙관적(tmp-) 메시지는 뒤에 남긴다 */
+const applyServer = (server: ChatMessage[]) => (prev: ChatMessage[]) => {
+  const ids = new Set(server.map((m) => m.id));
+  return [...server, ...prev.filter((m) => m.id.startsWith("tmp-") && !ids.has(m.id))];
+};
 
 export function MannyPanel({ project }: { project: Project }) {
   const pid = project.id;
@@ -26,8 +37,8 @@ export function MannyPanel({ project }: { project: Project }) {
   const [chatId, setChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [showHistory, setShowHistory] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [phase, setPhase] = useState(0);
+  const [sending, setSending] = useState(false);
+  const [queue, setQueue] = useState<Queued[]>([]);
   const [applying, setApplying] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,6 +54,10 @@ export function MannyPanel({ project }: { project: Project }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const kickoffDone = useRef(false);
+
+  // 생성 중인 메시지가 하나라도 있으면 폴링한다. since 는 가장 오래된 스트리밍 메시지 기준.
+  const streaming = useMemo(() => messages.filter((m) => m.status === "streaming"), [messages]);
+  const streamingCount = streaming.length;
 
   const loadChats = useCallback(async () => {
     const list = await api<ChatRow[]>(`/api/projects/${pid}/chat`);
@@ -64,11 +79,41 @@ export function MannyPanel({ project }: { project: Project }) {
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pid]);
-  // refetch messages when the active chat changes, or another panel/tab mutated data (tick), unless a send is in flight
+
+  // 활성 대화가 바뀌거나 다른 패널이 데이터를 바꿨을 때(tick) 다시 읽는다.
+  // 프로젝트를 나갔다 돌아와도 여기서 "streaming" 상태를 받아 폴링이 자동으로 이어진다.
   useEffect(() => {
-    if (!chatId || busy) return;
-    api<{ chat: Chat; messages: ChatMessage[] }>(`/api/projects/${pid}/chat/${chatId}`).then((r) => setMessages(r.messages));
-  }, [chatId, tick, busy, pid]);
+    if (!chatId || sending) return;
+    let alive = true;
+    api<{ chat: Chat; messages: ChatMessage[] }>(`/api/projects/${pid}/chat/${chatId}`)
+      .then((r) => { if (alive) setMessages(applyServer(r.messages)); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [chatId, tick, sending, pid]);
+
+  // 생성 중일 때만 700ms 폴링. 스트리밍이 끝나면(streamingCount → 0) 저절로 멈춘다.
+  useEffect(() => {
+    if (!chatId || streamingCount === 0) return;
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      try {
+        const r = await api<{ chat: Chat; messages: ChatMessage[] }>(`/api/projects/${pid}/chat/${chatId}`);
+        if (!alive) return;
+        setMessages(applyServer(r.messages));
+      } catch { /* 폴링 실패는 조용히 넘기고 다음 주기에 재시도 */ }
+      if (alive) timer = setTimeout(poll, POLL_MS);
+    };
+    timer = setTimeout(poll, POLL_MS);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [chatId, pid, streamingCount]);
+
+  // 답변이 끝나면 대화 목록(대기 제안 수)과 문서 뷰를 한 번 새로고침
+  useEffect(() => {
+    if (streamingCount > 0) return;
+    const t = setTimeout(() => { loadChats().catch(() => {}); }, 0);
+    return () => clearTimeout(t);
+  }, [streamingCount, loadChats]);
 
   // pending mention from tabs
   useEffect(() => {
@@ -81,18 +126,22 @@ export function MannyPanel({ project }: { project: Project }) {
     });
   }, [pendingMention, consumeMention]);
 
-  // busy phases: reset to 0 whenever a send starts (in `send`), advance on an interval while busy
+  // 새 메시지가 붙으면 맨 아래로. 타이핑 중에는(폴링 주기 사이) 아래에 붙어 있을 때만 따라간다.
+  useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight }); }, [messages.length]);
   useEffect(() => {
-    if (!busy) return;
-    const t = setInterval(() => setPhase((p) => Math.min(p + 1, PHASES.length - 1)), 6000);
+    if (streamingCount === 0) return;
+    const t = setInterval(() => {
+      const el = listRef.current;
+      if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 160) el.scrollTo({ top: el.scrollHeight });
+    }, 300);
     return () => clearInterval(t);
-  }, [busy]);
-  useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight }); }, [messages, busy]);
+  }, [streamingCount]);
 
+  /** POST 는 즉시 돌아온다(201). 실제 생성은 서버 백그라운드 잡이 계속한다. */
   const send = useCallback(async (opts: { content: string; mentions?: MentionChip[]; attachmentIds?: string[]; kickoff?: "ask" | "files"; chatId?: string }) => {
     let id = opts.chatId ?? chatId;
     if (!id) { const c = await api<Chat>(`/api/projects/${pid}/chat`, { method: "POST", json: {} }); id = c.id; setChatId(id); }
-    setBusy(true); setError(null); setPhase(0);
+    setSending(true); setError(null);
     const optimistic: ChatMessage | null = opts.kickoff === "ask" ? null : {
       id: "tmp-" + Date.now(), chatId: id, role: "user", content: opts.content, mentions: opts.mentions ?? [],
       attachments: (opts.attachmentIds ?? []).map((aid) => ({ id: aid, name: atts.find((a) => a.id === aid)?.name ?? "파일", mime: "", size: 0, text: "" })), proposals: [], status: "done", createdAt: new Date().toISOString(),
@@ -103,14 +152,25 @@ export function MannyPanel({ project }: { project: Project }) {
         method: "POST", json: { content: opts.content, mentions: opts.mentions ?? [], attachmentIds: opts.attachmentIds ?? [], kickoff: opts.kickoff ?? null },
       });
       setMessages((ms) => [...ms.filter((m) => !m.id.startsWith("tmp-")), ...(r.user ? [r.user] : []), r.assistant]);
-      loadChats();
+      loadChats().catch(() => {});
     } catch (e) {
       setError((e as Error).message);
       setMessages((ms) => ms.filter((m) => !m.id.startsWith("tmp-")));
-    } finally { setBusy(false); }
+    } finally { setSending(false); }
   }, [chatId, pid, atts, loadChats]);
 
-  // kickoff from HomeComposer
+  // 대기열 소진: 앞선 답변이 끝나면 다음 메시지를 자동 전송 (setTimeout 으로 이펙트 밖에서 setState)
+  useEffect(() => {
+    if (streamingCount > 0 || sending || queue.length === 0) return;
+    const next = queue[0];
+    const t = setTimeout(() => {
+      setQueue((q) => q.filter((x) => x.key !== next.key));
+      send({ content: next.content, mentions: next.mentions, attachmentIds: next.attachmentIds, chatId: next.chatId });
+    }, 0);
+    return () => clearTimeout(t);
+  }, [streamingCount, sending, queue, send]);
+
+  // kickoff from HomeComposer — 스트리밍 경로를 똑같이 탄다
   useEffect(() => {
     const kickoff = sp.get("kickoff") as "ask" | "files" | null;
     if (!kickoff || kickoffDone.current || chats === null) return;
@@ -129,22 +189,30 @@ export function MannyPanel({ project }: { project: Project }) {
   async function newChat() {
     const c = await api<Chat>(`/api/projects/${pid}/chat`, { method: "POST", json: {} });
     await loadChats();
-    setChatId(c.id); setShowHistory(false);
+    setChatId(c.id); setQueue([]); setShowHistory(false);
   }
   async function deleteChat(id: string) {
     if (!confirm("이 대화를 삭제할까요?")) return;
     await api(`/api/projects/${pid}/chat/${id}`, { method: "DELETE" });
     const list = await loadChats();
+    setQueue((q) => q.filter((x) => x.chatId !== id));
     if (chatId === id) setChatId(list[0]?.id ?? null);
   }
+  function selectChat(id: string) {
+    setChatId(id); setQueue([]); setShowHistory(false);
+  }
 
+  /** 답변을 기다리는 중이어도 막지 않는다: 진행 중이면 대기열에 쌓고 순서대로 보낸다. */
   function submit() {
     const content = text.trim();
     if (!content && !atts.length) return;
-    if (busy) return;
     const m = mentions; const a = atts.map((x) => x.id);
+    const body = { content: content || "첨부 자료를 검토해줘", mentions: m, attachmentIds: a };
     setText(""); setMentions([]); setAtts([]); setPicker(null);
-    send({ content: content || "첨부 자료를 검토해줘", mentions: m, attachmentIds: a });
+    if (streamingCount > 0 || sending || queue.length > 0) {
+      if (chatId) setQueue((q) => [...q, { key: `q-${Date.now()}-${q.length}`, chatId, ...body }]);
+      else send(body);
+    } else send(body);
   }
 
   async function upload(files: File[]) {
@@ -166,7 +234,7 @@ export function MannyPanel({ project }: { project: Project }) {
       setMessages((ms) => ms.map((m) => (m.id === messageId ? r.message : m)));
       if (r.errors.length) setError(r.errors.join("\n"));
       if (action !== "reject") { refresh(); broadcastChange(pid); }
-      loadChats();
+      loadChats().catch(() => {});
     } catch (e) { setError((e as Error).message); } finally { setApplying(null); }
   }
 
@@ -190,7 +258,8 @@ export function MannyPanel({ project }: { project: Project }) {
   const pickerQuery = picker ? text.slice(picker.start + 1, caret) : "";
 
   const current = chats?.find((c) => c.id === chatId);
-  const empty = messages.length === 0 && !busy;
+  const empty = messages.length === 0;
+  const working = streamingCount > 0 || sending;
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -204,7 +273,7 @@ export function MannyPanel({ project }: { project: Project }) {
           <div className="absolute right-2 top-10 card shadow-lg z-30 w-72 max-h-80 overflow-y-auto py-1" onMouseLeave={() => setShowHistory(false)}>
             {!chats?.length && <div className="px-3 py-2 text-xs text-muted">대화가 없습니다</div>}
             {chats?.map((c) => (
-              <div key={c.id} className={clsx("flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-black/[.03] cursor-pointer", c.id === chatId && "bg-accent-soft/60")} onClick={() => { setChatId(c.id); setShowHistory(false); }}>
+              <div key={c.id} className={clsx("flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-black/[.03] cursor-pointer", c.id === chatId && "bg-accent-soft/60")} onClick={() => selectChat(c.id)}>
                 <div className="flex-1 min-w-0">
                   <div className="truncate">{c.title}</div>
                   <div className="text-[10px] text-muted">{new Date(c.createdAt).toLocaleString("ko-KR")} · 메시지 {c.messageCount}{c.pendingProposals ? ` · 제안 ${c.pendingProposals}건 대기` : ""}</div>
@@ -226,14 +295,19 @@ export function MannyPanel({ project }: { project: Project }) {
         )}
         {messages.map((m) => (
           <div key={m.id} className={clsx("flex", m.role === "user" ? "justify-end" : "justify-start")}>
-            <div className={clsx("max-w-[92%] rounded-lg px-3 py-2", m.role === "user" ? "bg-accent text-white" : "bg-black/[.04] dark:bg-white/[.06]")}>
+            <div className={clsx("max-w-[92%] rounded-lg px-3 py-2",
+              m.role === "user" ? "bg-accent text-white" : m.status === "error" ? "border border-danger/30 bg-danger/[.06]" : "bg-black/[.04] dark:bg-white/[.06]")}>
               {(m.mentions.length > 0 || m.attachments.length > 0) && (
                 <div className="flex flex-wrap gap-1 mb-1.5">
                   {m.mentions.map((x) => <span key={`${x.type}:${x.id}`} className="chip border-white/30 bg-white/15 text-[10px]"><AtSign size={9} />{x.label}</span>)}
                   {m.attachments.map((a) => <span key={a.id} className="chip border-white/30 bg-white/15 text-[10px]"><Paperclip size={9} />{a.name}</span>)}
                 </div>
               )}
-              {m.role === "user" ? <div className="text-sm whitespace-pre-wrap">{m.content}</div> : <Markdown text={m.content} />}
+              {m.role === "user"
+                ? <div className="text-sm whitespace-pre-wrap">{m.content}</div>
+                : m.status === "error"
+                  ? <Markdown text={m.content} />
+                  : <StreamingReply content={m.content} streaming={m.status === "streaming"} />}
               {m.proposals.length > 0 && (
                 <div className="mt-2 space-y-1.5">
                   <div className="flex items-center justify-between text-[11px] text-muted">
@@ -244,31 +318,46 @@ export function MannyPanel({ project }: { project: Project }) {
                       </button>
                     )}
                   </div>
-                  {m.proposals.map((p) => (
-                    <ProposalCard key={p.id} proposal={p} busy={applying !== null} onApply={() => proposalAction(m.id, p.id, "apply")} onReject={() => proposalAction(m.id, p.id, "reject")} />
-                  ))}
+                  <AnimatePresence initial={false}>
+                    {m.proposals.map((p, i) => (
+                      <motion.div
+                        key={p.id}
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -4 }}
+                        transition={{ duration: 0.18, ease: "easeOut", delay: Math.min(i, 6) * 0.03 }}
+                      >
+                        <ProposalCard proposal={p} busy={applying !== null} onApply={() => proposalAction(m.id, p.id, "apply")} onReject={() => proposalAction(m.id, p.id, "reject")} />
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
                 </div>
               )}
             </div>
           </div>
         ))}
-        {busy && (
-          <div className="flex justify-start">
-            <div className="rounded-lg px-3 py-2 bg-black/[.04] dark:bg-white/[.06] text-xs text-muted flex items-center gap-2">
-              <Loader2 size={13} className="animate-spin text-accent" /> {PHASES[phase]}
-            </div>
-          </div>
-        )}
         {error && <div className="text-xs text-danger whitespace-pre-wrap border border-danger/30 rounded-md p-2 flex gap-2"><span className="flex-1">{error}</span><button onClick={() => setError(null)}><X size={12} /></button></div>}
       </div>
 
-      {/* composer */}
+      {/* composer — 생성 중에도 잠기지 않는다 */}
       <div className="border-t p-3 shrink-0">
         {empty && (
           <div className="flex flex-wrap gap-1 mb-2">
             {QUICK.map((q) => <button key={q} className="chip hover:bg-accent-soft hover:text-accent cursor-pointer" onClick={() => send({ content: q })}>{q}</button>)}
           </div>
         )}
+        <AnimatePresence initial={false}>
+          {queue.length > 0 && (
+            <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="mb-2 space-y-1">
+              {queue.map((q) => (
+                <div key={q.key} className="flex items-center gap-1.5 text-[11px] text-muted">
+                  <Clock size={11} /><span className="truncate flex-1">{q.content}</span>
+                  <button className="btn btn-icon" onClick={() => setQueue((cur) => cur.filter((x) => x.key !== q.key))}><X size={11} /></button>
+                </div>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
         {(mentions.length > 0 || atts.length > 0) && (
           <div className="flex flex-wrap gap-1 mb-2">
             {mentions.map((m) => (
@@ -281,12 +370,13 @@ export function MannyPanel({ project }: { project: Project }) {
         )}
         <div className="relative">
           {picker && <MentionPicker index={index} query={pickerQuery} onPick={pickMention} onClose={() => setPicker(null)} />}
+          {/* field-sizing:content 로 내용만큼 자란다(globals.css). 여기서 10줄쯤에서 스크롤로 넘긴다 */}
           <textarea
             ref={taRef}
-            className="input resize-none min-h-[64px] max-h-40 text-sm"
-            placeholder="매니에게 메시지… (@로 대상 지목, ⌘/Ctrl+Enter 전송)"
+            rows={1}
+            className="input text-sm !max-h-56"
+            placeholder={working ? "이어서 보낼 메시지… (⌘/Ctrl+Enter)" : "매니에게 메시지… (@로 대상 지목, ⌘/Ctrl+Enter 전송)"}
             value={text}
-            disabled={busy}
             onChange={(e) => onTextChange(e.target.value, e.target.selectionStart ?? e.target.value.length)}
             onKeyDown={(e) => { if (picker) return; if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); } }}
             onBlur={() => setTimeout(() => setPicker(null), 150)}
@@ -295,11 +385,12 @@ export function MannyPanel({ project }: { project: Project }) {
         <div className="flex items-center justify-between mt-1.5">
           <div className="flex items-center gap-1">
             <input ref={fileRef} type="file" multiple hidden accept=".pdf,.docx,.txt,.md,.csv,.json,.hwp,.hwpx,.xlsx" onChange={(e) => upload(Array.from(e.target.files ?? []))} />
-            <button className="btn btn-ghost btn-sm text-muted" disabled={uploading || busy} onClick={() => fileRef.current?.click()}>{uploading ? <Loader2 size={13} className="animate-spin" /> : <Paperclip size={13} />} 첨부</button>
-            <button className="btn btn-ghost btn-sm text-muted" disabled={busy} onClick={() => { const v = text + (text && !/\s$/.test(text) ? " " : "") + "@"; onTextChange(v, v.length); setTimeout(() => { taRef.current?.focus(); taRef.current?.setSelectionRange(v.length, v.length); }, 0); }}><AtSign size={13} /> 멘션</button>
+            <button className="btn btn-ghost btn-sm text-muted" disabled={uploading} onClick={() => fileRef.current?.click()}>{uploading ? <Loader2 size={13} className="animate-spin" /> : <Paperclip size={13} />} 첨부</button>
+            <button className="btn btn-ghost btn-sm text-muted" onClick={() => { const v = text + (text && !/\s$/.test(text) ? " " : "") + "@"; onTextChange(v, v.length); setTimeout(() => { taRef.current?.focus(); taRef.current?.setSelectionRange(v.length, v.length); }, 0); }}><AtSign size={13} /> 멘션</button>
           </div>
-          <button className="btn btn-primary rounded-full !p-2" disabled={busy || (!text.trim() && !atts.length)} onClick={submit}>
-            {busy ? <Loader2 size={14} className="animate-spin" /> : <ArrowUp size={14} />}
+          <button className="btn btn-primary rounded-full !p-2 relative" disabled={!text.trim() && !atts.length} onClick={submit} title={working ? "대기열에 추가" : "전송"}>
+            <ArrowUp size={14} />
+            {working && <motion.span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-white/90" animate={{ opacity: [0.35, 1, 0.35] }} transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }} />}
           </button>
         </div>
       </div>

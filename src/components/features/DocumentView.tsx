@@ -1,14 +1,15 @@
 "use client";
 import { useEffect, useState } from "react";
 import clsx from "clsx";
-import { MessageSquare, Plus, Sparkles, Trash2 } from "lucide-react";
+import { Check, MessageSquare, Plus, Sparkles, Trash2, X } from "lucide-react";
 import { ITEM_TYPE_LABEL, SPEC_SLOTS, SPEC_SLOT_LABEL, rid, type FeatureData, type Item, type RequirementData, type SpecData } from "@/lib/types";
 import { useEditor } from "@/components/editor/EditorContext";
-import { PrioritySelect, StatusSelect } from "@/components/ui";
+import { Spinner } from "@/components/ui";
 import { useFeatures } from "./FeaturesContext";
 import { Highlight } from "./Highlight";
 import { SlotsEditor } from "./ItemDetail";
-import { TYPE_CLASS, ancestorIds } from "./utils";
+import { NewBadge, NumTag, PriorityBarsSelect, StatusChipSelect } from "./controls";
+import { TYPE_CLASS, ancestorIds, tint } from "./utils";
 
 /** click-to-edit text: shows highlighted text, becomes input/textarea on click */
 function Inline({ value, onChange, q, className, placeholder, multiline }: { value: string; onChange: (v: string) => void; q: string; className?: string; placeholder: string; multiline?: boolean }) {
@@ -28,21 +29,33 @@ function Inline({ value, onChange, q, className, placeholder, multiline }: { val
 }
 
 function Meta({ item }: { item: Item }) {
-  const { store, removeItem, select, selectedId } = useFeatures();
+  const { store, removeItem, select, selectedId, numbers, resolveProposals } = useFeatures();
   const { mention } = useEditor();
+  const num = numbers.get(item.id);
   return (
     <div className={clsx("flex items-center gap-2 flex-wrap", selectedId === item.id && "text-accent")}>
+      {num && <NumTag n={num} className="!text-[11px]" />}
       <span className={clsx("chip border-transparent", TYPE_CLASS[item.type])}>{ITEM_TYPE_LABEL[item.type]}</span>
-      <StatusSelect value={item.status} onChange={(status) => store.update(item.id, { status })} />
-      <PrioritySelect value={item.priority} onChange={(priority) => store.update(item.id, { priority })} />
-      <button className="btn btn-icon text-muted" title="매니에게 질문" onClick={() => { select(item.id); mention({ type: "item", id: item.id, label: item.title || ITEM_TYPE_LABEL[item.type] }); }}><MessageSquare size={13} /></button>
-      <button className="btn btn-icon text-muted hover:text-danger" title="삭제" onClick={() => { if (confirm(`'${item.title || "(제목 없음)"}' 항목과 하위 항목을 삭제할까요?`)) void removeItem(item.id); }}><Trash2 size={13} /></button>
+      {item.aiProposed && <NewBadge />}
+      <StatusChipSelect value={item.status} onChange={(status) => store.update(item.id, { status })} />
+      <PriorityBarsSelect value={item.priority} onChange={(priority) => store.update(item.id, { priority })} />
+      {item.aiProposed ? (
+        <>
+          <button className="btn btn-sm btn-ghost text-muted hover:text-danger" title="이 제안을 삭제합니다" onClick={() => void resolveProposals("reject", [item.id])}><X size={12} /> 거절</button>
+          <button className="btn btn-sm btn-primary" title="제안을 확정합니다" onClick={() => void resolveProposals("approve", [item.id])}><Check size={12} /> 승인</button>
+        </>
+      ) : (
+        <>
+          <button className="btn btn-icon text-muted" title="매니에게 질문" onClick={() => { select(item.id); mention({ type: "item", id: item.id, label: item.title || ITEM_TYPE_LABEL[item.type] }); }}><MessageSquare size={13} /></button>
+          <button className="btn btn-icon text-muted hover:text-danger" title="삭제" onClick={() => { if (confirm(`'${item.title || "(제목 없음)"}' 항목과 하위 항목을 삭제할까요?`)) void removeItem(item.id); }}><Trash2 size={13} /></button>
+        </>
+      )}
     </div>
   );
 }
 
 export function DocumentView() {
-  const { store, selectedId, select, query, currentMatchId, addChild, aiGenerate, projectId } = useFeatures();
+  const { store, selectedId, select, query, currentMatchId, addChild, aiGenerate, aiBusy, aiBusyParentId, projectId, colors } = useFeatures();
   const reqs = store.children(null);
   const rootOf = (id: string) => { const a = ancestorIds(store.items, id); return a.length ? a[a.length - 1] : id; };
   // shown requirement follows the selection (search matches select too); falls back to the first one
@@ -55,6 +68,7 @@ export function DocumentView() {
 
   const req = reqId ? store.byId.get(reqId) : undefined;
   const features = req ? store.children(req.id) : [];
+  const color = (req && colors.get(req.id)) || "var(--line)";
   const focus = (id: string) => (currentMatchId === id ? "ring-2 ring-amber-400 rounded-md" : "");
 
   return (
@@ -64,7 +78,7 @@ export function DocumentView() {
           <label className="text-xs text-muted">요구사항</label>
           <select className="input !w-auto" value={reqId ?? ""} onChange={(e) => select(e.target.value || null)}>
             {reqs.length === 0 && <option value="">(요구사항 없음)</option>}
-            {reqs.map((r) => <option key={r.id} value={r.id}>{r.title || "(제목 없음)"}</option>)}
+            {reqs.map((r, i) => <option key={r.id} value={r.id}>{`${i + 1}. ${r.title || "(제목 없음)"}${r.aiProposed ? " · 신규" : ""}`}</option>)}
           </select>
           <button className="btn btn-sm ml-auto" onClick={() => void addChild(null)}><Plus size={12} /> 요구사항 추가</button>
         </div>
@@ -73,7 +87,7 @@ export function DocumentView() {
           <div className="text-sm text-muted py-10 text-center border rounded-lg border-dashed">요구사항을 추가하면 문서 형태로 편집할 수 있습니다.</div>
         ) : (
           <article className="space-y-8">
-            <section data-doc-id={req.id} className={focus(req.id)} onClick={() => selectedId !== req.id && select(req.id)}>
+            <section data-doc-id={req.id} className={clsx("pl-4 rounded-r-lg", focus(req.id))} style={{ borderLeft: `3px solid ${color}`, background: tint(color, 4) }} onClick={() => selectedId !== req.id && select(req.id)}>
               <Meta item={req} />
               <Inline value={req.title} onChange={(title) => store.update(req.id, { title })} q={query} className="text-2xl font-bold mt-2" placeholder="요구사항 제목" />
               <Inline value={req.description} onChange={(description) => store.update(req.id, { description })} q={query} className="text-sm text-muted mt-1" placeholder="요구사항 설명" multiline />
@@ -96,7 +110,7 @@ export function DocumentView() {
               const fd = f.data as FeatureData;
               const specs = store.children(f.id);
               return (
-                <section key={f.id} data-doc-id={f.id} className={clsx("pt-6 border-t", focus(f.id))} onClick={(e) => { e.stopPropagation(); if (selectedId !== f.id) select(f.id); }}>
+                <section key={f.id} data-doc-id={f.id} className={clsx("pt-6 border-t pl-4", focus(f.id))} style={{ boxShadow: `inset 2px 0 0 ${tint(color, 45, "var(--line)")}` }} onClick={(e) => { e.stopPropagation(); if (selectedId !== f.id) select(f.id); }}>
                   <Meta item={f} />
                   <Inline value={f.title} onChange={(title) => store.update(f.id, { title })} q={query} className="text-xl font-semibold mt-2" placeholder={`기능 ${fi + 1} 제목`} />
                   <Inline value={f.description} onChange={(description) => store.update(f.id, { description })} q={query} className="text-sm text-muted mt-1" placeholder="기능 설명" multiline />
@@ -110,7 +124,7 @@ export function DocumentView() {
                     </div>
                   </details>
 
-                  <div className="mt-4 space-y-5 pl-4 border-l-2">
+                  <div className="mt-4 space-y-5 pl-4" style={{ borderLeft: `2px solid ${tint(color, 30, "var(--line)")}` }}>
                     {specs.map((s) => {
                       const sd = s.data as SpecData;
                       const visibleSlots = SPEC_SLOTS.filter((k) => !(sd.hiddenSlots ?? []).includes(k));
@@ -137,7 +151,7 @@ export function DocumentView() {
             })}
             <div className="pt-6 border-t flex gap-2">
               <button className="btn btn-sm" onClick={() => void addChild(req.id)}><Plus size={12} /> 기능 추가</button>
-              <button className="btn btn-sm" onClick={() => aiGenerate(req.id)}><Sparkles size={12} /> 매니로 기능 생성</button>
+              <button className="btn btn-sm" disabled={aiBusy} onClick={() => aiGenerate(req.id)}>{aiBusy && aiBusyParentId === req.id ? <Spinner className="w-3 h-3" /> : <Sparkles size={12} />} 매니로 기능 생성</button>
             </div>
           </article>
         )}

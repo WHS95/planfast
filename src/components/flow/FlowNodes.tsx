@@ -1,95 +1,142 @@
 "use client";
-import { memo } from "react";
-import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
+import { memo, useEffect, useRef, useState } from "react";
+import { Handle, NodeResizer, Position, type Node, type NodeProps } from "@xyflow/react";
 import clsx from "clsx";
-import { AppWindow, Database, GitBranch, MousePointerClick, Play } from "lucide-react";
 import { FLOW_NODE_SIZE } from "@/lib/flow/layout";
+import { frameTint } from "@/lib/flow/frames";
 import type { FlowNodeType } from "@/lib/types";
+import { useFlowUi } from "./FlowUiContext";
 
 export type FlowNodeData = { label: string; description: string; kind: FlowNodeType };
+export type FrameData = { label: string; description: string; color: string; index: number; implicit?: boolean };
 export type RFNode = Node<FlowNodeData, FlowNodeType>;
+export type RFFrame = Node<FrameData, "frame">;
+export type RFAny = RFNode | RFFrame;
+export const isFrameNode = (n: RFAny): n is RFFrame => n.type === "frame";
 
-const handleCls = "!w-2.5 !h-2.5 !bg-zinc-400 !border-2 !border-panel";
+const handleCls = "!w-2 !h-2 !bg-white !border !border-zinc-400 dark:!bg-zinc-800 dark:!border-zinc-500 opacity-0 group-hover:opacity-100 transition-opacity";
 
-function Wrap({ children, selected, className, style, kind }: { children: React.ReactNode; selected?: boolean; className?: string; style?: React.CSSProperties; kind: FlowNodeType }) {
+function Wrap({ children, selected, kind }: { children: React.ReactNode; selected?: boolean; kind: FlowNodeType }) {
   const size = FLOW_NODE_SIZE[kind];
   return (
-    <div style={{ width: size.width, height: size.height, ...style }} className={clsx("relative", className)}>
+    <div style={{ width: size.width, height: size.height }} className="relative group">
       {kind !== "start" && <Handle type="target" position={Position.Left} className={handleCls} />}
       {children}
       <Handle type="source" position={Position.Right} className={handleCls} />
-      {selected && <div className="absolute -inset-1 rounded-xl ring-2 ring-accent/50 pointer-events-none" />}
+      {selected && <div className="absolute -inset-1.5 rounded-[10px] ring-2 ring-accent/60 pointer-events-none" />}
     </div>
   );
 }
 
+/** 시작 — 검정 pill, 흰 글씨 */
 export const StartNode = memo(function StartNode({ data, selected }: NodeProps<RFNode>) {
   return (
     <Wrap kind="start" selected={selected}>
-      <div className="w-full h-full rounded-full bg-emerald-600 text-white flex items-center justify-center gap-1.5 text-[13px] font-medium shadow-sm px-3">
-        <Play size={12} fill="currentColor" /><span className="truncate">{data.label || "시작"}</span>
+      <div className="w-full h-full rounded-full bg-[var(--fg)] text-[var(--bg)] flex items-center justify-center text-[13px] font-medium px-4">
+        <span className="truncate">{data.label || "시작"}</span>
       </div>
     </Wrap>
   );
 });
 
+/** 페이지 — 연보라 라운드 사각형 */
 export const PageNode = memo(function PageNode({ data, selected }: NodeProps<RFNode>) {
   return (
     <Wrap kind="page" selected={selected}>
-      <div className="w-full h-full rounded-lg border bg-panel shadow-sm flex flex-col overflow-hidden">
-        <div className="flex items-center gap-1.5 px-2.5 py-1 border-b bg-bg text-[10px] text-muted">
-          <span className="flex gap-0.5"><i className="w-1.5 h-1.5 rounded-full bg-rose-400" /><i className="w-1.5 h-1.5 rounded-full bg-amber-400" /><i className="w-1.5 h-1.5 rounded-full bg-emerald-400" /></span>
-          <AppWindow size={10} /> 페이지
-        </div>
-        <div className="px-2.5 py-1.5 min-h-0">
-          <div className="text-[13px] font-medium truncate">{data.label || "(제목 없음)"}</div>
-          <div className="text-[10px] text-muted line-clamp-2 leading-snug">{data.description}</div>
-        </div>
+      <div className="w-full h-full rounded-lg border border-violet-300/80 bg-violet-50 dark:border-violet-500/40 dark:bg-violet-500/15 flex flex-col justify-center px-3 py-2">
+        <div className="text-[13px] font-medium text-violet-950 dark:text-violet-100 truncate">{data.label || "(제목 없음)"}</div>
+        {data.description && <div className="text-[10.5px] text-violet-900/60 dark:text-violet-200/60 line-clamp-2 leading-snug mt-0.5">{data.description}</div>}
       </div>
     </Wrap>
   );
 });
 
+/** 데이터 — 하늘색 평행사변형 */
 export const DataNode = memo(function DataNode({ data, selected }: NodeProps<RFNode>) {
   return (
     <Wrap kind="data" selected={selected}>
-      <div className="w-full h-full relative">
-        <div className="absolute inset-x-0 top-0 h-3.5 rounded-[50%] bg-sky-200 dark:bg-sky-800 border border-sky-400 dark:border-sky-600 z-10" />
-        <div className="absolute inset-x-0 top-[7px] bottom-0 rounded-b-[50%/12px] bg-sky-50 dark:bg-sky-900/40 border border-t-0 border-sky-400 dark:border-sky-600 flex flex-col items-center justify-center px-3 pt-2 text-center">
-          <div className="text-[10px] text-sky-700 dark:text-sky-300 flex items-center gap-1"><Database size={10} /> 데이터</div>
-          <div className="text-[12px] font-medium truncate w-full">{data.label || "(제목 없음)"}</div>
-        </div>
+      <div className="w-full h-full -skew-x-[12deg] rounded-[6px] border border-sky-300/80 bg-sky-50 dark:border-sky-500/40 dark:bg-sky-500/15" />
+      <div className="absolute inset-0 flex flex-col justify-center px-5 pointer-events-none">
+        <div className="text-[12.5px] font-medium text-sky-950 dark:text-sky-100 truncate">{data.label || "(제목 없음)"}</div>
+        {data.description && <div className="text-[10.5px] text-sky-900/60 dark:text-sky-200/60 truncate">{data.description}</div>}
       </div>
     </Wrap>
   );
 });
 
+/** 분기 — 앰버 다이아몬드 */
 export const BranchNode = memo(function BranchNode({ data, selected }: NodeProps<RFNode>) {
   return (
     <Wrap kind="branch" selected={selected}>
-      <div className="w-full h-full relative flex items-center justify-center">
-        <svg viewBox="0 0 170 90" className="absolute inset-0 w-full h-full" preserveAspectRatio="none">
-          <polygon points="85,2 168,45 85,88 2,45" className="fill-amber-50 stroke-amber-500 dark:fill-amber-900/40" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
-        </svg>
-        <div className="relative text-center px-8">
-          <div className="text-[10px] text-amber-700 dark:text-amber-300 flex items-center justify-center gap-1"><GitBranch size={10} /> 분기</div>
-          <div className="text-[12px] font-medium leading-tight line-clamp-2">{data.label || "(조건)"}</div>
-        </div>
+      <svg viewBox="0 0 176 84" className="absolute inset-0 w-full h-full" preserveAspectRatio="none">
+        <polygon points="88,2 174,42 88,82 2,42" className="fill-amber-50 stroke-amber-400 dark:fill-amber-500/15 dark:stroke-amber-500/60" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+      </svg>
+      <div className="absolute inset-0 flex items-center justify-center px-9 pointer-events-none">
+        <div className="text-[11.5px] font-medium leading-tight text-center line-clamp-3 text-amber-950 dark:text-amber-100">{data.label || "(조건)"}</div>
       </div>
     </Wrap>
   );
 });
 
+/** 행동 — 흰 pill, 회색 테두리 */
 export const ActionNode = memo(function ActionNode({ data, selected }: NodeProps<RFNode>) {
   return (
     <Wrap kind="action" selected={selected}>
-      <div className="w-full h-full rounded-2xl border border-violet-400 dark:border-violet-600 bg-violet-50 dark:bg-violet-900/30 shadow-sm flex flex-col justify-center px-3">
-        <div className="text-[10px] text-violet-700 dark:text-violet-300 flex items-center gap-1"><MousePointerClick size={10} /> 행동</div>
-        <div className="text-[12px] font-medium truncate">{data.label || "(제목 없음)"}</div>
-        {data.description && <div className="text-[10px] text-muted truncate">{data.description}</div>}
+      <div className="w-full h-full rounded-full border bg-panel flex items-center justify-center px-4">
+        <span className="text-[12.5px] truncate">{data.label || "(제목 없음)"}</span>
       </div>
     </Wrap>
   );
 });
 
-export const flowNodeTypes = { start: StartNode, page: PageNode, data: DataNode, branch: BranchNode, action: ActionNode };
+/** 프레임(스윔레인) — 자식 노드를 담는 그룹 노드 */
+export const FrameNode = memo(function FrameNode({ id, data, selected, width, height }: NodeProps<RFFrame>) {
+  const ui = useFlowUi();
+  const tint = frameTint(data.color, data.index);
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(data.label);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (editing) inputRef.current?.select(); }, [editing]);
+  const commit = () => { setEditing(false); const t = text.trim(); if (t && t !== data.label) ui.renameFrame(id, t); else setText(data.label); };
+  const implicit = !!data.implicit;
+
+  return (
+    <div className="group/frame w-full h-full relative" style={{ width, height }}>
+      {!implicit && !ui.readOnly && (
+        <NodeResizer minWidth={320} minHeight={120} lineClassName="!border-accent/40" handleClassName="!w-2 !h-2 !rounded-sm !border-accent !bg-panel" isVisible={selected} />
+      )}
+      <div
+        className={clsx(
+          "absolute inset-0 rounded-lg border transition-colors",
+          implicit ? "border-dashed border-line" : selected ? "border-accent/50" : "border-line group-hover/frame:border-dashed group-hover/frame:border-accent/40",
+        )}
+        style={{ background: tint.bg }}
+      />
+      <div className="absolute left-3 top-2 flex items-center gap-1.5 max-w-[70%]">
+        <i className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: tint.dot }} />
+        {editing ? (
+          <input
+            ref={inputRef}
+            className="nodrag bg-panel border rounded px-1.5 py-0.5 text-[11.5px] font-medium outline-none focus:border-accent w-52"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") { setText(data.label); setEditing(false); } }}
+          />
+        ) : (
+          <button
+            className={clsx("text-[11.5px] font-medium truncate rounded px-1 py-0.5 -mx-1", implicit ? "text-muted cursor-default" : "hover:bg-black/[.04] dark:hover:bg-white/[.06]")}
+            onClick={(e) => { e.stopPropagation(); if (!implicit && !ui.readOnly) ui.openFrame(id); }}
+            onDoubleClick={(e) => { e.stopPropagation(); if (!implicit && !ui.readOnly) { setText(data.label); setEditing(true); } }}
+            title={implicit ? "프레임에 속하지 않은 노드" : "클릭: 프레임 편집 · 더블클릭: 이름 변경"}
+          >
+            {data.label}
+          </button>
+        )}
+        {data.description && !editing && <span className="text-[10.5px] text-muted truncate hidden group-hover/frame:inline">{data.description}</span>}
+      </div>
+    </div>
+  );
+});
+
+export const flowNodeTypes = { start: StartNode, page: PageNode, data: DataNode, branch: BranchNode, action: ActionNode, frame: FrameNode };

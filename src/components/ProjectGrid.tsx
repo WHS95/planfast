@@ -21,7 +21,7 @@ export function ProjectGrid({ projects, trash = false }: { projects: Project[]; 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
       {projects.map((p) => (
-        <div key={p.id} className="card p-4 relative group hover:shadow-sm transition-shadow">
+        <div key={p.id} className={clsx("card p-4 relative group", menu !== p.id && "lift")}>
           <Link href={trash ? "#" : `/p/${p.id}/prd`} className="block">
             <div className="h-20 rounded-md bg-accent-soft/60 mb-3 flex items-center justify-center text-accent text-2xl font-semibold">{p.title.slice(0, 1)}</div>
             <div className="font-medium truncate pr-12">{p.title}</div>
@@ -54,4 +54,20 @@ export function ProjectGrid({ projects, trash = false }: { projects: Project[]; 
 }
 function MenuItem({ onClick, icon, children, danger }: { onClick: () => void; icon: React.ReactNode; children: React.ReactNode; danger?: boolean }) {
   return <button onClick={onClick} className={clsx("w-full flex items-center gap-2 px-3 py-1.5 hover:bg-black/[.04] dark:hover:bg-white/[.05]", danger && "text-danger")}>{icon}{children}</button>;
+}
+
+/** 목록을 불러오는 동안 쓰는 스켈레톤. `<ProjectGridSkeleton count={6} />` */
+export function ProjectGridSkeleton({ count = 6 }: { count?: number }) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" aria-hidden>
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className="card p-4">
+          <div className="skeleton h-20 mb-3" />
+          <div className="skeleton h-4 w-2/3" />
+          <div className="skeleton h-3 w-full mt-2" />
+          <div className="skeleton h-3 w-1/3 mt-2" />
+        </div>
+      ))}
+    </div>
+  );
 }

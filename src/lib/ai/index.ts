@@ -4,7 +4,12 @@
  *    claude.ai subscription. Personal/local use only.
  *  - "anthropic-api": @anthropic-ai/sdk with ANTHROPIC_API_KEY (or key stored in settings).
  *
- * Both expose the same two calls: generateText and generateJson (schema-constrained).
+ * Exposes generateText, generateStream (token-by-token) and generateJson (schema-validated).
+ *
+ * generateJson is single-turn by default: the JSON Schema is embedded in the prompt and the model
+ * answers with raw JSON in ONE model turn. The CLI's native `--json-schema` mode costs TWO turns
+ * (prose answer + a StructuredOutput tool call that regenerates it), so it is only used as a
+ * fallback when the single-turn output cannot be parsed/validated.
  */
 import { spawn } from "node:child_process";
 import Anthropic from "@anthropic-ai/sdk";
@@ -25,6 +30,11 @@ export interface AiResult<T> {
   raw: string;
   usage?: { input: number; output: number; costUsd?: number };
 }
+/** generateStream options: `onText` receives each text delta plus the full text so far. */
+export type AiStreamOptions = AiOptions & { onText: (delta: string, full: string) => void };
+
+const DEBUG = process.env.NODE_ENV !== "production" || !!process.env.PLANFAST_AI_DEBUG;
+function dbg(...args: unknown[]) { if (DEBUG) console.debug("[ai]", ...args); }
 
 function resolveModel(model: string | undefined, provider: AiProvider): string {
   const m = model ?? appSettings.get().model ?? "sonnet";
@@ -35,6 +45,7 @@ function resolveModel(model: string | undefined, provider: AiProvider): string {
 
 // ---------------------------------------------------------------- CLI provider
 interface CliJson {
+  type?: string;
   result?: string;
   structured_output?: unknown;
   is_error?: boolean;
@@ -44,12 +55,25 @@ interface CliJson {
   usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
 }
 
+interface CliStreamLine extends CliJson {
+  event?: { type?: string; delta?: { type?: string; text?: string } };
+}
+
+function cliEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env.CLAUDECODE; // allow nesting when launched from inside Claude Code
+  delete env.CLAUDE_CODE_ENTRYPOINT;
+  return env;
+}
+
+function cliErrorDetail(parsed: CliJson, err: string): string {
+  return [parsed.result, parsed.subtype, parsed.api_error_status != null ? `api_error_status=${parsed.api_error_status}` : "", err.trim()]
+    .filter(Boolean).join(" | ") || "unknown";
+}
+
 function runCli(args: string[], signal?: AbortSignal): Promise<CliJson> {
   return new Promise((resolve, reject) => {
-    const env = { ...process.env };
-    delete env.CLAUDECODE; // allow nesting when launched from inside Claude Code
-    delete env.CLAUDE_CODE_ENTRYPOINT;
-    const child = spawn("claude", args, { env, stdio: ["ignore", "pipe", "pipe"], signal });
+    const child = spawn("claude", args, { env: cliEnv(), stdio: ["ignore", "pipe", "pipe"], signal });
     let out = "";
     let err = "";
     child.stdout.on("data", (d) => (out += d));
@@ -60,10 +84,7 @@ function runCli(args: string[], signal?: AbortSignal): Promise<CliJson> {
       if (start < 0) return reject(new Error(`claude CLI exited ${code}: ${err || out}`.slice(0, 2000)));
       try {
         const parsed = JSON.parse(out.slice(start)) as CliJson;
-        if (parsed.is_error) {
-          const detail = [parsed.result, parsed.subtype, parsed.api_error_status != null ? `api_error_status=${parsed.api_error_status}` : "", err.trim()].filter(Boolean).join(" | ") || "unknown";
-          return reject(new Error(`claude CLI error: ${detail}`.slice(0, 2000)));
-        }
+        if (parsed.is_error) return reject(new Error(`claude CLI error: ${cliErrorDetail(parsed, err)}`.slice(0, 2000)));
         resolve(parsed);
       } catch (e) {
         reject(new Error(`claude CLI returned non-JSON (exit ${code}): ${(e as Error).message}\n${out.slice(0, 500)}`));
@@ -72,10 +93,10 @@ function runCli(args: string[], signal?: AbortSignal): Promise<CliJson> {
   });
 }
 
-function cliBaseArgs(system: string, model: string): string[] {
+function cliBaseArgs(system: string, model: string, format: "json" | "stream" = "json"): string[] {
   return [
     "-p",
-    "--output-format", "json",
+    ...(format === "stream" ? ["--output-format", "stream-json", "--verbose", "--include-partial-messages"] : ["--output-format", "json"]),
     "--model", model,
     "--tools", "",
     "--no-session-persistence",
@@ -97,6 +118,55 @@ async function cliJson<T>(o: AiOptions, model: string, jsonSchema: Record<string
   if (data === undefined) throw new Error("AI returned no structured output");
   return { data, raw: r.result ?? JSON.stringify(data), usage: cliUsage(r) };
 }
+/**
+ * Streaming variant: `stream-json` NDJSON on stdout. Text arrives as
+ * {type:"stream_event", event:{type:"content_block_delta", delta:{type:"text_delta", text}}} —
+ * matched on delta.type, never on block index (index 0 is often a `thinking` block).
+ * The final {type:"result"} line carries the complete text and usage.
+ */
+function runCliStream(args: string[], onText: (delta: string, full: string) => void, signal?: AbortSignal): Promise<CliJson & { streamed: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("claude", args, { env: cliEnv(), stdio: ["ignore", "pipe", "pipe"], signal });
+    let buf = "";
+    let err = "";
+    let full = "";
+    let result: CliStreamLine | undefined;
+    const handleLine = (line: string) => {
+      const t = line.trim();
+      if (!t.startsWith("{")) return;
+      let msg: CliStreamLine;
+      try { msg = JSON.parse(t) as CliStreamLine; } catch { return; }
+      if (msg.type === "stream_event") {
+        const ev = msg.event;
+        if (ev?.type === "content_block_delta" && ev.delta?.type === "text_delta" && ev.delta.text) {
+          full += ev.delta.text;
+          try { onText(ev.delta.text, full); } catch { /* listener errors must not kill the stream */ }
+        }
+      } else if (msg.type === "result") result = msg;
+    };
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (d: string) => {
+      buf += d;
+      let i = buf.indexOf("\n");
+      while (i >= 0) { handleLine(buf.slice(0, i)); buf = buf.slice(i + 1); i = buf.indexOf("\n"); }
+    });
+    child.stderr.on("data", (d) => (err += d));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (buf.trim()) handleLine(buf);
+      if (!result) return reject(new Error(`claude CLI stream ended without a result (exit ${code}): ${err || full}`.slice(0, 2000)));
+      if (result.is_error) return reject(new Error(`claude CLI error: ${cliErrorDetail(result, err)}`.slice(0, 2000)));
+      resolve({ ...result, streamed: full });
+    });
+  });
+}
+
+async function cliStream(o: AiStreamOptions, model: string): Promise<AiResult<string>> {
+  const r = await runCliStream([...cliBaseArgs(o.system, model, "stream"), o.prompt], o.onText, o.signal);
+  const text = r.result ?? r.streamed;
+  return { data: text, raw: text, usage: cliUsage(r) };
+}
+
 const cliUsage = (r: CliJson) => ({
   input: (r.usage?.input_tokens ?? 0) + (r.usage?.cache_read_input_tokens ?? 0) + (r.usage?.cache_creation_input_tokens ?? 0),
   output: r.usage?.output_tokens ?? 0,
@@ -118,6 +188,22 @@ async function apiText(o: AiOptions, model: string): Promise<AiResult<string>> {
   const text = msg.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("");
   return { data: text, raw: text, usage: { input: msg.usage.input_tokens, output: msg.usage.output_tokens } };
 }
+async function apiStream(o: AiStreamOptions, model: string): Promise<AiResult<string>> {
+  const client = apiClient();
+  const stream = client.messages.stream(
+    { model, max_tokens: o.maxTokens ?? 16000, system: o.system, messages: [{ role: "user", content: o.prompt }] },
+    { signal: o.signal },
+  );
+  let full = "";
+  stream.on("text", (delta: string) => {
+    full += delta;
+    try { o.onText(delta, full); } catch { /* listener errors must not kill the stream */ }
+  });
+  const msg = await stream.finalMessage();
+  const text = msg.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("") || full;
+  return { data: text, raw: text, usage: { input: msg.usage.input_tokens, output: msg.usage.output_tokens } };
+}
+
 async function apiJson<T>(o: AiOptions, model: string, jsonSchema: Record<string, unknown>): Promise<AiResult<T>> {
   const client = apiClient();
   const stream = client.messages.stream(
@@ -159,14 +245,67 @@ export async function generateText(o: AiOptions): Promise<AiResult<string>> {
   return { ...r, data: stripToolArtifacts(r.data) };
 }
 
-/** Schema-constrained generation. Pass a zod schema; it is converted to JSON Schema. */
+/**
+ * Streaming text generation. `onText(delta, full)` fires for every text delta.
+ * Never pass a request-scoped AbortSignal here for background jobs — the child would be killed
+ * as soon as the HTTP response flushes.
+ */
+export async function generateStream(o: AiStreamOptions): Promise<AiResult<string>> {
+  const provider = o.provider ?? appSettings.get().aiProvider;
+  const model = resolveModel(o.model, provider);
+  const r = provider === "anthropic-api" ? await apiStream(o, model) : await cliStream(o, model);
+  return { ...r, data: stripToolArtifacts(r.data) };
+}
+
+const JSON_SYSTEM_SUFFIX = "이 요청에 대해서는 오직 JSON 하나만 출력합니다. 설명·인사·코드 펜스를 절대 붙이지 않습니다.";
+function jsonOnlyInstruction(jsonSchema: Record<string, unknown>): string {
+  return [
+    "# 출력 형식 (반드시 지킬 것)",
+    "아래 JSON Schema를 정확히 만족하는 JSON 값 **하나만** 출력하세요.",
+    "설명 문장, 머리말, 맺음말, 코드 펜스(```), 주석을 절대 붙이지 마세요. 응답의 첫 글자는 `{`(또는 `[`), 마지막 글자는 `}`(또는 `]`) 여야 합니다.",
+    "JSON Schema:",
+    JSON.stringify(jsonSchema),
+  ].join("\n");
+}
+
+/**
+ * Schema-constrained generation. Pass a zod schema; it is converted to JSON Schema.
+ *
+ * Single-turn path: the schema is embedded in the prompt and the model replies with raw JSON
+ * (1 model turn). If that cannot be extracted or fails zod validation, falls back **once** to the
+ * provider's native structured-output mode (CLI `--json-schema`, which costs 2 turns).
+ */
 export async function generateJson<S extends z.ZodTypeAny>(o: AiOptions & { schema: S }): Promise<AiResult<z.infer<S>>> {
   const provider = o.provider ?? appSettings.get().aiProvider;
   const model = resolveModel(o.model, provider);
   const jsonSchema = toJsonSchema(o.schema);
+
+  let reason = "";
+  try {
+    const single: AiOptions = {
+      ...o,
+      system: `${o.system}\n\n${JSON_SYSTEM_SUFFIX}`,
+      prompt: `${o.prompt}\n\n${jsonOnlyInstruction(jsonSchema)}`,
+    };
+    const res = provider === "anthropic-api" ? await apiText(single, model) : await cliText(single, model);
+    const extracted = extractJson<unknown>(res.raw);
+    if (extracted === undefined) reason = "no JSON found in reply";
+    else {
+      const parsed = o.schema.safeParse(stripToolArtifacts(extracted));
+      if (parsed.success) {
+        dbg("generateJson: single-turn ok", { provider, model, chars: res.raw.length });
+        return { ...res, data: parsed.data };
+      }
+      reason = `schema validation: ${parsed.error.message.slice(0, 200)}`;
+    }
+  } catch (e) {
+    if (o.signal?.aborted) throw e;
+    reason = `single-turn call failed: ${(e as Error).message.slice(0, 200)}`;
+  }
+
+  dbg("generateJson: falling back to native structured output —", reason);
   const res = provider === "anthropic-api" ? await apiJson<unknown>(o, model, jsonSchema) : await cliJson<unknown>(o, model, jsonSchema);
-  const cleaned = stripToolArtifacts(res.data);
-  const parsed = o.schema.safeParse(cleaned);
+  const parsed = o.schema.safeParse(stripToolArtifacts(res.data));
   if (!parsed.success) throw new Error(`AI output failed schema validation: ${parsed.error.message.slice(0, 500)}`);
   return { ...res, data: parsed.data };
 }

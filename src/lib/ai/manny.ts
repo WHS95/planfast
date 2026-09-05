@@ -1,15 +1,17 @@
 /**
  * 매니 채팅 오케스트레이션 (server only).
  *  - 프롬프트 조립(프로젝트 컨텍스트 + 멘션 + 첨부 + 최근 대화)
- *  - generateJson → { reply, proposals[] }
+ *  - 한 번의 스트리밍 턴으로 답변: 마크다운 본문 → (변경 제안이 있을 때만) 마지막에
+ *    ```planfast-proposals 펜스 블록 하나. 서버가 스트림을 받아 본문만 메시지에 기록하고,
+ *    끝나면 펜스를 파싱해 제안(pending)으로 저장한다.
  *  - 제안(ProposalOp) 반영: prd.set / item.create / item.update / item.delete
  */
 import { z } from "zod";
-import { generateJson } from "@/lib/ai";
+import { extractJson, generateStream } from "@/lib/ai";
 import { MANNY_SYSTEM, projectContext, prdToMarkdown, itemsToMarkdown } from "@/lib/ai/context";
 import { projects, items, flows, wireframes, chats, attachments, activity } from "@/lib/repo";
 import {
-  rid, ITEM_TYPES, PRIORITIES, STATUSES, SPEC_SLOTS, PRD_SECTION_KEYS,
+  rid, ITEM_TYPES, PRIORITIES, STATUSES, SPEC_SLOTS, SPEC_SLOT_LABEL, PRD_SECTION_KEYS,
   type ChatMessage, type Proposal, type ProposalOp, type Item, type Prd, type PrdSection, type RequirementData, type FeatureData, type SpecData, type Attachment,
 } from "@/lib/types";
 
@@ -56,10 +58,9 @@ export const proposalOpSchema = z.discriminatedUnion("kind", [
 ]);
 export type ProposalOpInput = z.infer<typeof proposalOpSchema>;
 
-export const mannyReplySchema = z.object({
-  reply: z.string().describe("사용자에게 보여줄 답변 (마크다운 간단 문법: 문단, - 불릿, **굵게**)"),
-  proposals: z.array(z.object({ summary: z.string().describe("제안 한 줄 요약"), op: proposalOpSchema })),
-});
+/** ```planfast-proposals 펜스 안에 오는 배열의 스키마 */
+export const proposalEntrySchema = z.object({ summary: z.string(), op: proposalOpSchema });
+export const proposalListSchema = z.array(proposalEntrySchema);
 
 /** zod 스키마의 느슨한 입력을 ProposalOp 도메인 타입으로 정규화 */
 export function normalizeOp(op: ProposalOpInput): ProposalOp {
@@ -81,14 +82,36 @@ export function normalizeOp(op: ProposalOpInput): ProposalOp {
 // ---------------------------------------------------------------- prompt
 export interface MentionRef { type: "prd" | "item" | "flow" | "wireframe"; id: string; label: string }
 
+const FENCE_TAG = "planfast-proposals";
+export const PROPOSAL_FENCE_OPEN = "```" + FENCE_TAG;
+
 const PROPOSAL_RULES = `
-# 제안(proposals) 작성 규칙
-- 문서를 바꾸는 요청이면 답변(reply)에 설명을 쓰고, 실제 변경은 proposals 배열에 담습니다. 절대 reply 안에 "반영했습니다"라고 쓰지 마세요. 사용자가 반영/거절을 선택합니다.
-- 단순 질문·상담이면 proposals는 빈 배열입니다.
+# 답변 형식 (반드시 이 순서로)
+1) 먼저 사용자에게 보여줄 답변을 마크다운으로 씁니다. (문단, - 불릿, **굵게**, \`코드\`)
+2) 문서를 바꿀 제안이 있을 때에만, 답변 맨 끝에 아래 펜스 블록을 딱 한 번 덧붙입니다. 제안이 없으면 펜스 블록을 아예 쓰지 마세요.
+
+${PROPOSAL_FENCE_OPEN}
+[{"summary": "제안 한 줄 요약(한국어)", "op": { ... }}]
+\`\`\`
+
+- 펜스 블록 안은 JSON 배열 하나만. 주석·설명 금지. 펜스 블록 뒤에는 아무것도 쓰지 마세요.
+- 본문에 제안 JSON을 미리 늘어놓지 마세요. 본문은 사람이 읽을 설명만.
+
+# op 종류
+- {"kind":"prd.set","sectionKey":"섹션 키 또는 제목","label":"항목명","content":"내용"}
+- {"kind":"item.create","tempId":"t1","type":"${ITEM_TYPES.join("|")}","parentId":null 또는 "상위 항목 id/같은 블록의 tempId","title":"","description":"","data":{ ... }}
+- {"kind":"item.update","itemId":"기존 항목 id","patch":{"title"?,"description"?,"priority"?:"${PRIORITIES.join("|")}","status"?:"${STATUSES.join("|")}","data"?:{ ... }}}
+- {"kind":"item.delete","itemId":"기존 항목 id"}
+- data: {"acceptance":["수용 기준", ...](요구사항), "roles":["역할", ...] / "rationale":"" / "successCriteria":""(기능), "slots":{"슬롯키":"값"}(상세기능)}
+- 슬롯키: ${SPEC_SLOTS.map((k) => `${k}(${SPEC_SLOT_LABEL[k]})`).join(", ")}
+
+# 제안 작성 규칙
+- 문서를 바꾸는 요청이면 본문에는 설명을 쓰고, 실제 변경은 펜스 블록에 담습니다. 절대 본문에 "반영했습니다"라고 쓰지 마세요. 사용자가 반영/거절을 선택합니다.
+- 단순 질문·상담이면 펜스 블록 없이 본문만 씁니다.
 - prd.set: sectionKey는 섹션 키(overview/problem/target/success/attributes) 또는 섹션 제목, label은 기존 항목명과 정확히 일치. 새 항목이 필요하면 새 label을 사용.
-- item.create: 요구사항(requirement, parentId=null) → 기능(feature, parentId=요구사항 id) → 상세기능(spec, parentId=기능 id). 같은 메시지에서 만든 항목은 tempId로 참조.
+- item.create: 요구사항(requirement, parentId=null) → 기능(feature, parentId=요구사항 id) → 상세기능(spec, parentId=기능 id). 같은 블록에서 만든 항목은 tempId로 참조.
 - item.update: 기존 항목의 id(문맥의 [id])만 사용. patch에는 바꾸는 필드만.
-- item.delete: 신중히. 근거를 reply에 명시.
+- item.delete: 신중히. 근거를 본문에 명시.
 - summary는 한국어 한 줄. 제안은 많아도 15개 이내로.
 - PRD가 대부분 비어 있고 사용자가 아이디어·배경·답변을 제공했다면 prd.set 제안으로 PRD 초안을 채웁니다.`;
 
@@ -153,7 +176,8 @@ export interface BuildPromptInput {
 
 export function buildMannyPrompt(input: BuildPromptInput): { system: string; prompt: string } {
   const { project, text } = projectContext(input.projectId, { withIds: true, includeFlows: true, includePages: true });
-  const history = chats.messages(input.chatId).slice(-HISTORY_LIMIT);
+  // 아직 스트리밍 중인 assistant 행(동시 전송 시)은 본문이 비어 있으므로 히스토리에서 제외
+  const history = chats.messages(input.chatId).filter((m) => m.status !== "streaming" || m.content.trim()).slice(-HISTORY_LIMIT);
   const parts: string[] = [];
   parts.push(text, prdKeyGuide(project.prd));
   if (input.mentions.length) {
@@ -169,15 +193,59 @@ export function buildMannyPrompt(input: BuildPromptInput): { system: string; pro
   }
   if (input.kickoff === "ask") {
     parts.push("# 이번 턴", `사용자가 새 프로젝트를 시작하며 아래 아이디어를 적었습니다.\n"""\n${input.content}\n"""`,
-      "지시: 짧게 인사하고, 이 아이디어를 PRD로 구체화하기 위해 꼭 필요한 명확화 질문 3~5개를 번호 목록으로 하세요. 각 질문은 한 문장, 필요하면 예시 선택지를 괄호로. 이번 턴에는 proposals를 만들지 마세요(빈 배열).");
+      "지시: 짧게 인사하고, 이 아이디어를 PRD로 구체화하기 위해 꼭 필요한 명확화 질문 3~5개를 번호 목록으로 하세요. 각 질문은 한 문장, 필요하면 예시 선택지를 괄호로. 이번 턴에는 제안 펜스 블록을 쓰지 마세요(본문만).");
   } else if (input.kickoff === "files") {
     parts.push("# 이번 턴", `사용자 요청: ${input.content}`,
-      "지시: 첨부 자료(및 프로젝트 설명)를 근거로 PRD 초안을 prd.set 제안으로 채우세요. 개요/문제/타겟/성공 섹션의 기존 항목명을 모두 채우고, 속성 설정은 쉼표 구분 키워드로. reply에는 자료에서 파악한 핵심과 확인이 필요한 점을 간단히.");
+      "지시: 첨부 자료(및 프로젝트 설명)를 근거로 PRD 초안을 prd.set 제안으로 채우세요. 개요/문제/타겟/성공 섹션의 기존 항목명을 모두 채우고, 속성 설정은 쉼표 구분 키워드로. 본문에는 자료에서 파악한 핵심과 확인이 필요한 점을 간단히 쓰고, 제안은 펜스 블록에 담으세요.");
   } else {
-    parts.push("# 이번 턴", `사용자: ${input.content}`, "지시: 위 컨텍스트를 바탕으로 답하세요. 문서 변경이 필요하면 proposals로 제안하세요.");
+    parts.push("# 이번 턴", `사용자: ${input.content}`, "지시: 위 컨텍스트를 바탕으로 답하세요. 문서 변경이 필요하면 답변 끝의 제안 펜스 블록으로 제안하세요.");
   }
   const system = [MANNY_SYSTEM, PROPOSAL_RULES, project.settings.chatTone ? `채팅 말투: ${project.settings.chatTone}` : ""].filter(Boolean).join("\n\n");
   return { system, prompt: parts.join("\n\n") };
+}
+
+// ---------------------------------------------------------------- fence protocol
+/**
+ * 스트리밍 중 화면에 보여줄 부분만 잘라낸다: 제안 펜스가 시작되기 전까지.
+ * 아직 마커가 다 오지 않은 꼬리(``` / ```planf …)도 감춘다.
+ */
+export function visibleReply(raw: string): string {
+  const i = raw.indexOf(PROPOSAL_FENCE_OPEN);
+  if (i >= 0) return raw.slice(0, i).trimEnd();
+  for (let n = Math.min(PROPOSAL_FENCE_OPEN.length - 1, raw.length); n > 0; n--) {
+    if (raw.endsWith(PROPOSAL_FENCE_OPEN.slice(0, n))) return raw.slice(0, raw.length - n).trimEnd();
+  }
+  return raw;
+}
+
+/** 완성된 응답을 본문 / 펜스 내용으로 분리. 펜스가 닫히지 않았어도(잘림) 최대한 살린다. */
+export function splitReply(raw: string): { text: string; fence: string | null } {
+  const i = raw.indexOf(PROPOSAL_FENCE_OPEN);
+  if (i < 0) return { text: raw.trim(), fence: null };
+  const text = raw.slice(0, i).trim();
+  const rest = raw.slice(i + PROPOSAL_FENCE_OPEN.length);
+  const close = rest.indexOf("```");
+  return { text, fence: close >= 0 ? rest.slice(0, close) : rest };
+}
+
+/** 펜스 내용 → Proposal[]. 일부 항목만 유효하면 유효한 것만 살린다. 실패해도 던지지 않는다. */
+export function parseProposalFence(fence: string): Proposal[] {
+  // 절대 던지지 않는다: 펜스 파싱 실패로 메시지 전체를 error 로 만들면 안 된다(답변 본문은 살린다)
+  try {
+    const toProposal = (p: z.infer<typeof proposalEntrySchema>): Proposal => ({ id: rid(), summary: p.summary, op: normalizeOp(p.op), status: "pending" });
+    const raw = extractJson<unknown>(fence);
+    if (raw === undefined) return [];
+    const list = proposalListSchema.safeParse(raw);
+    if (list.success) return list.data.map(toProposal);
+    if (!Array.isArray(raw)) return [];
+    // 배열 일부만 유효하면 유효한 것만 살린다
+    const out: Proposal[] = [];
+    for (const entry of raw) {
+      const one = proposalEntrySchema.safeParse(entry);
+      if (one.success) out.push(toProposal(one.data));
+    }
+    return out;
+  } catch { return []; }
 }
 
 // ---------------------------------------------------------------- run
@@ -190,7 +258,18 @@ export interface SendInput {
   kickoff?: "ask" | "files" | null;
 }
 
-export async function runManny(input: SendInput): Promise<{ user: ChatMessage | null; assistant: ChatMessage }> {
+export interface PreparedSend {
+  /** kickoff="ask" 는 사용자 메시지를 남기지 않는다 */
+  user: ChatMessage | null;
+  system: string;
+  prompt: string;
+}
+
+/**
+ * 동기 준비 단계 (라우트에서 즉시 실행): 프롬프트를 먼저 조립한 뒤 사용자 메시지 행을 넣는다.
+ * 순서가 중요하다 — 반대로 하면 방금 보낸 메시지가 "최근 대화"와 "이번 턴"에 중복으로 들어간다.
+ */
+export function prepareManny(input: SendInput): PreparedSend {
   const mentions = input.mentions ?? [];
   let atts = (input.attachmentIds ?? []).map((id) => attachments.get(id)).filter((a): a is NonNullable<typeof a> => !!a && a.projectId === input.projectId);
   if (input.kickoff === "files" && !atts.length) atts = attachments.list(input.projectId);
@@ -199,25 +278,57 @@ export async function runManny(input: SendInput): Promise<{ user: ChatMessage | 
   // hidden first turn for kickoff=ask: do not persist the user message
   const user = input.kickoff === "ask" ? null : chats.addMessage({
     chatId: input.chatId, role: "user", content: input.content, mentions,
-    attachments: atts.map((a) => ({ id: a.id, name: a.name, mime: a.mime, size: a.size, text: "" })), proposals: [],
+    attachments: atts.map((a) => ({ id: a.id, name: a.name, mime: a.mime, size: a.size, text: "" })), proposals: [], status: "done",
   });
-
-  let reply = "";
-  let proposals: Proposal[] = [];
-  try {
-    const r = await generateJson({ system, prompt, schema: mannyReplySchema });
-    reply = r.data.reply;
-    proposals = r.data.proposals.map((p) => ({ id: rid(), summary: p.summary, op: normalizeOp(p.op), status: "pending" as const }));
-  } catch (e) {
-    reply = `죄송해요, 응답 생성 중 문제가 생겼어요. 다시 시도해 주세요.\n\n오류: ${(e as Error).message.slice(0, 300)}`;
-  }
-  const assistant = chats.addMessage({ chatId: input.chatId, role: "assistant", content: reply, mentions: [], attachments: [], proposals });
 
   // auto-title the chat on first user message
   const chat = chats.get(input.chatId);
   if (chat && (chat.title === "새 채팅" || !chat.title)) chats.rename(input.chatId, input.content.replace(/\s+/g, " ").trim().slice(0, 40) || "새 채팅");
-  activity.log(input.projectId, "chat.send", chat?.title ?? "채팅", { proposals: proposals.length }, "manny");
-  return { user, assistant };
+  return { user, system, prompt };
+}
+
+export interface StreamRunInput {
+  projectId: string;
+  chatId: string;
+  /** status="streaming" 으로 미리 만들어 둔 assistant 메시지 id */
+  assistantMessageId: string;
+  system: string;
+  prompt: string;
+}
+
+const FLUSH_MS = 250;
+
+/**
+ * 백그라운드 잡 본체. 스트림이 오는 동안 ~250ms 간격으로 본문을 메시지 행에 기록하고,
+ * 끝나면 펜스를 파싱해 제안과 함께 status=done 으로 마감한다. 예외가 나도 항상 done/error 로 끝난다.
+ * AbortSignal 은 일부러 넘기지 않는다 (클라이언트 접속이 끊겨도 계속 돌아야 함).
+ */
+export async function runMannyStream(input: StreamRunInput): Promise<void> {
+  const id = input.assistantMessageId;
+  let lastWrite = 0;
+  let lastText = "";
+  const flush = (full: string, force = false) => {
+    const t = Date.now();
+    if (!force && t - lastWrite < FLUSH_MS) return;
+    lastWrite = t;
+    const vis = visibleReply(full);
+    if (vis === lastText) return;
+    lastText = vis;
+    try { chats.updateMessage(id, { content: vis, status: "streaming" }); } catch { /* 다음 flush 에서 재시도 */ }
+  };
+
+  try {
+    const r = await generateStream({ system: input.system, prompt: input.prompt, onText: (_d, full) => flush(full) });
+    const { text, fence } = splitReply(r.data);
+    const proposals = fence ? parseProposalFence(fence) : [];
+    chats.updateMessage(id, { content: text || "(빈 응답이 돌아왔어요. 다시 시도해 주세요.)", proposals, status: "done" });
+    const chat = chats.get(input.chatId);
+    activity.log(input.projectId, "chat.send", chat?.title ?? "채팅", { proposals: proposals.length }, "manny");
+  } catch (e) {
+    const msg = (e as Error).message?.slice(0, 300) ?? "unknown";
+    const partial = lastText ? `${lastText}\n\n` : "";
+    chats.updateMessage(id, { content: `${partial}죄송해요, 응답 생성 중 문제가 생겼어요. 다시 시도해 주세요.\n\n오류: ${msg}`, proposals: [], status: "error" });
+  }
 }
 
 // ---------------------------------------------------------------- apply

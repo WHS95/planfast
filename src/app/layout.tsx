@@ -16,7 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <script dangerouslySetInnerHTML={{ __html: `if(matchMedia('(prefers-color-scheme: dark)').matches)document.documentElement.classList.add('dark')` }} />
         )}
       </head>
-      <body className="h-full flex">
+      <body className="h-full flex" suppressHydrationWarning>
         <Sidebar />
         <main className="flex-1 min-w-0 flex flex-col h-full overflow-hidden">{children}</main>
       </body>
