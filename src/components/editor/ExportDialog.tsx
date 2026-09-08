@@ -1,13 +1,13 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
-import { FileSpreadsheet, FileText, FileCode2, Image as ImageIcon, GitBranch, Copy, Check, LayoutTemplate } from "lucide-react";
+import { FileSpreadsheet, FileText, FileCode2, Image as ImageIcon, GitBranch, Copy, Check, LayoutTemplate, BookText } from "lucide-react";
 import type { Flow, FlowNodeType, Project, Wireframe, WireframePage } from "@/lib/types";
 import { api } from "@/lib/api";
 import { Dialog } from "@/components/ui/Dialog";
 import { Spinner } from "@/components/ui";
 
-type Doc = "features" | "flow" | "wireframe";
+type Doc = "features" | "ia" | "flow" | "wireframe" | "spec";
 type FlowLite = { id: string; name: string; nodes: number };
 type WfLite = Wireframe & { pages: WireframePage[] };
 
@@ -41,7 +41,7 @@ function ExportButton({ k, icon: Icon, label, hint, onClick, disabled, busy }: E
 }
 
 export function ExportDialog({ project, current, onClose }: { project: Project; current?: string; onClose: () => void }) {
-  const [doc, setDoc] = useState<Doc>(current === "flow" ? "flow" : current === "wireframe" ? "wireframe" : "features");
+  const [doc, setDoc] = useState<Doc>(current === "flow" ? "flow" : current === "wireframe" ? "wireframe" : current === "ia" ? "ia" : "features");
   const [flows, setFlows] = useState<FlowLite[]>([]);
   const [flowId, setFlowId] = useState("");
   const [wfs, setWfs] = useState<WfLite[]>([]);
@@ -140,7 +140,7 @@ export function ExportDialog({ project, current, onClose }: { project: Project; 
   return (
     <Dialog title="내보내기" onClose={onClose} wide>
       <div className="flex gap-1 mb-4 border-b">
-        {([["features", "기능명세서"], ["flow", "유저플로우"], ["wireframe", "와이어프레임"]] as const).map(([k, l]) => (
+        {([["features", "기능명세서"], ["ia", "정보구조도"], ["flow", "유저플로우"], ["wireframe", "와이어프레임"], ["spec", "화면설계서"]] as const).map(([k, l]) => (
           <button key={k} className={clsx("px-3 py-1.5 text-sm -mb-px border-b-2", doc === k ? "border-accent text-accent font-medium" : "border-transparent text-muted hover:text-fg")} onClick={() => setDoc(k)}>{l}</button>
         ))}
       </div>
@@ -151,6 +151,30 @@ export function ExportDialog({ project, current, onClose }: { project: Project; 
           <ExportButton busy={busy} k="md" icon={FileCode2} label="마크다운 (.md)" hint="PRD + 기능명세서 트리" onClick={() => download(exp("features-md"))} />
           <ExportButton busy={busy} k="txt" icon={FileText} label="텍스트 (.txt)" hint="서식 없는 일반 텍스트" onClick={() => download(exp("features-txt"))} />
           <ExportButton busy={busy} k="png" icon={ImageIcon} label="이미지 (.png)" hint="문서 전체를 한 장으로 렌더링" onClick={() => run("png", featuresPng)} />
+        </div>
+      )}
+
+      {doc === "ia" && (
+        <div className="space-y-2">
+          <ExportButton busy={busy} k="iaxlsx" icon={FileSpreadsheet} label="IA 구성도 엑셀 (.xlsx)"
+            hint="1~4Depth · 관련 페이지 · 관리기능 · 설명 · 타입 · Directory · File Name"
+            onClick={() => download(exp("ia-xlsx"))} />
+          <p className="text-[11px] text-muted">Depth 열은 페이지 계층에서 자동 계산됩니다. 나머지 열은 정보구조도의 &quot;표&quot; 보기에서 직접 입력한 값입니다.</p>
+        </div>
+      )}
+
+      {doc === "spec" && (
+        <div className="space-y-2">
+          <ExportButton busy={busy} k="spec" icon={BookText} label="화면설계서 (.html)"
+            hint="표지 · 개정 이력 · 목차 + 페이지마다 정의/to-do/정책/플로우/화면"
+            onClick={() => download(exp("screen-spec-html"))} />
+          <div className="card p-3 text-[11px] text-muted leading-relaxed space-y-1">
+            <div><b className="text-fg">각 장이 채워지는 방식</b></div>
+            <div>· 정의 ← 정보구조도 페이지 설명 / to-do ← 그 페이지에 연결한 상세기능</div>
+            <div>· 정책 ← 상세기능 9개 슬롯 + 상위 요구사항 인수조건</div>
+            <div>· 플로우 ← <b>이름이 같은</b> 유저플로우 또는 프레임 / 화면 ← 이름이 같은 와이어프레임 페이지</div>
+            <div className="pt-1">이름이 맞는 자료가 없으면 그 칸은 &quot;해당 없음&quot;으로 남습니다(내용을 지어내지 않습니다). 브라우저에서 열어 <b>인쇄 → PDF로 저장</b>하면 A4 가로 문서가 됩니다.</div>
+          </div>
         </div>
       )}
 

@@ -10,7 +10,7 @@ declare global {
   var __planfastMigration: number | undefined;
 }
 /** Bump when migrate() gains a step — the dev server keeps the DB handle across hot reloads, so a cached handle must re-run new migrations. */
-const MIGRATION_VERSION = 1;
+const MIGRATION_VERSION = 2;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS projects (
@@ -119,6 +119,7 @@ function migrate(db: DatabaseSync) {
   ensureColumn("messages", "status", "TEXT NOT NULL DEFAULT 'done'");
   ensureColumn("items", "ai_proposed", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn("flows", "frames", "TEXT NOT NULL DEFAULT '[]'");
+  ensureColumn("pages", "meta", "TEXT NOT NULL DEFAULT '{}'");
 }
 
 // ---- helpers ---------------------------------------------------------------

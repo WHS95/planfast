@@ -91,9 +91,9 @@ export const projects = {
       for (const p of pages) {
         const linked = j<string[]>(p.linked_spec_ids, []).map((s) => idMap.get(s) ?? s);
         run(
-          "INSERT INTO pages (id,project_id,parent_id,\"order\",name,description,linked_spec_ids,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+          "INSERT INTO pages (id,project_id,parent_id,\"order\",name,description,linked_spec_ids,meta,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
           pageMap.get(p.id as string), copy.id, p.parent_id ? pageMap.get(p.parent_id as string) ?? null : null,
-          p.order, p.name, p.description, JSON.stringify(linked), t, t,
+          p.order, p.name, p.description, JSON.stringify(linked), p.meta ?? "{}", t, t,
         );
       }
       for (const f of all("SELECT * FROM flows WHERE project_id=?", id)) {

@@ -2,11 +2,12 @@
 import clsx from "clsx";
 import { Check, Sparkles, X } from "lucide-react";
 import type { Page } from "@/lib/types";
-import type { IaProposal, ProposedPage } from "./types";
+import type { IaProposal, ProposedPage, SpecRef } from "./types";
 
 interface Props {
   proposal: IaProposal;
   pages: Page[];
+  specs: SpecRef[];
   onChange: (p: IaProposal) => void;
   onAccept: () => void;
   onReject: () => void;
@@ -19,28 +20,54 @@ function toggle(list: ProposedPage[], key: string): ProposedPage[] {
   return list.map((p) => (p.key === key ? { ...p, checked: !p.checked, children: p.checked ? setAll(p.children, false) : p.children } : { ...p, children: toggle(p.children, key) }));
 }
 
-export function IaProposals({ proposal, pages, onChange, onAccept, onReject, busy }: Props) {
+export function IaProposals({ proposal, pages, specs, onChange, onAccept, onReject, busy }: Props) {
   const parent = proposal.kind === "tree" && proposal.parentId ? pages.find((p) => p.id === proposal.parentId) : undefined;
-  const n = proposal.kind === "tree" ? countChecked(proposal.pages) : proposal.updates.filter((u) => u.checked).length;
-  const total = proposal.kind === "tree" ? countChecked(setAll(proposal.pages, true)) : proposal.updates.length;
+  const n = proposal.kind === "tree" ? countChecked(proposal.pages)
+    : proposal.kind === "link" ? proposal.links.filter((l) => l.checked).length
+    : proposal.updates.filter((u) => u.checked).length;
+  const total = proposal.kind === "tree" ? countChecked(setAll(proposal.pages, true))
+    : proposal.kind === "link" ? proposal.links.length
+    : proposal.updates.length;
+  const setAllChecked = (v: boolean): IaProposal =>
+    proposal.kind === "tree" ? { ...proposal, pages: setAll(proposal.pages, v) }
+    : proposal.kind === "link" ? { ...proposal, links: proposal.links.map((l) => ({ ...l, checked: v })) }
+    : { ...proposal, updates: proposal.updates.map((u) => ({ ...u, checked: v })) };
 
   return (
     <div className="w-[360px] shrink-0 border-l bg-panel flex flex-col min-h-0">
       <div className="px-4 py-2.5 border-b flex items-center gap-2">
         <Sparkles size={13} className="text-accent" />
         <div className="text-sm font-medium flex-1 truncate">
-          매니 제안 · {proposal.kind === "enrich" ? "설명 보강" : parent ? `"${parent.name}" 하위 페이지` : "정보구조도"}
+          매니 제안 · {proposal.kind === "enrich" ? "설명 보강" : proposal.kind === "link" ? "상세기능 연결" : parent ? `"${parent.name}" 하위 페이지` : "정보구조도"}
         </div>
         <button className="btn btn-icon text-muted" onClick={onReject}><X size={14} /></button>
       </div>
       <div className="px-4 py-2 text-[11px] text-muted border-b flex items-center gap-2">
         {n}/{total} 선택
-        <button className="underline ml-auto" onClick={() => onChange(proposal.kind === "tree" ? { ...proposal, pages: setAll(proposal.pages, true) } : { ...proposal, updates: proposal.updates.map((u) => ({ ...u, checked: true })) })}>전체 선택</button>
-        <button className="underline" onClick={() => onChange(proposal.kind === "tree" ? { ...proposal, pages: setAll(proposal.pages, false) } : { ...proposal, updates: proposal.updates.map((u) => ({ ...u, checked: false })) })}>전체 해제</button>
+        <button className="underline ml-auto" onClick={() => onChange(setAllChecked(true))}>전체 선택</button>
+        <button className="underline" onClick={() => onChange(setAllChecked(false))}>전체 해제</button>
       </div>
       <div className="flex-1 overflow-y-auto px-3 py-2">
         {proposal.kind === "tree" ? (
           <Tree list={proposal.pages} depth={0} onToggle={(k) => onChange({ ...proposal, pages: toggle(proposal.pages, k) })} />
+        ) : proposal.kind === "link" ? (
+          proposal.links.map((l) => {
+            const pg = pages.find((p) => p.id === l.pageId);
+            return (
+              <label key={l.pageId} className={clsx("flex gap-2 items-start px-2 py-2 rounded-md cursor-pointer hover:bg-black/[.03] dark:hover:bg-white/[.04]", !l.checked && "opacity-60")}>
+                <input type="checkbox" className="mt-1 accent-[var(--accent)]" checked={l.checked}
+                  onChange={() => onChange({ ...proposal, links: proposal.links.map((x) => (x.pageId === l.pageId ? { ...x, checked: !x.checked } : x)) })} />
+                <div className="min-w-0 text-xs">
+                  <div className="font-medium">{pg?.name ?? "(삭제된 페이지)"}</div>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {l.specIds.map((sid) => (
+                      <span key={sid} className="chip !py-0 !text-[10px] bg-accent-soft text-accent border-transparent">{specs.find((s) => s.id === sid)?.title ?? sid}</span>
+                    ))}
+                  </div>
+                </div>
+              </label>
+            );
+          })
         ) : (
           proposal.updates.map((u) => {
             const cur = pages.find((p) => p.id === u.id);

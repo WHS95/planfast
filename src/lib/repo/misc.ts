@@ -1,7 +1,7 @@
 import { all, get, run, tx, j, bool } from "@/lib/db";
 import {
   now, rid, defaultAppSettings,
-  type Page, type Flow, type FlowNode, type FlowEdge, type FlowFrame, type MessageStatus, type Wireframe, type WireframePage, type Device,
+  type Page, type PageMeta, type Flow, type FlowNode, type FlowEdge, type FlowFrame, type MessageStatus, type Wireframe, type WireframePage, type Device,
   type Chat, type ChatMessage, type Review, type ReviewItem, type ReviewPerspective, type Meeting, type Decision,
   type Version, type ProjectSnapshot, type Activity, type Comment, type ShareLink, type ApiKey, type Attachment, type AppSettings,
 } from "@/lib/types";
@@ -15,24 +15,26 @@ const s = (v: unknown) => (v as string) ?? "";
 const mapPage = (r: R): Page => ({
   id: s(r.id), projectId: s(r.project_id), parentId: (r.parent_id as string) ?? null, order: r.order as number,
   name: s(r.name), description: s(r.description), linkedSpecIds: j<string[]>(r.linked_spec_ids, []),
+  meta: j<PageMeta>(r.meta, {}),
   createdAt: s(r.created_at), updatedAt: s(r.updated_at),
 });
 export const pages = {
   list: (projectId: string) => all('SELECT * FROM pages WHERE project_id=? ORDER BY "order", created_at', projectId).map(mapPage),
   get: (id: string) => { const r = get("SELECT * FROM pages WHERE id=?", id); return r ? mapPage(r) : undefined; },
-  create(input: { projectId: string; parentId?: string | null; name: string; description?: string; linkedSpecIds?: string[]; order?: number }): Page {
+  create(input: { projectId: string; parentId?: string | null; name: string; description?: string; linkedSpecIds?: string[]; order?: number; meta?: PageMeta }): Page {
     const id = rid(); const t = now();
     const order = input.order ?? ((get<{ m: number | null }>('SELECT MAX("order") m FROM pages WHERE project_id=? AND parent_id IS ?', input.projectId, input.parentId ?? null)?.m ?? -1) + 1);
-    run('INSERT INTO pages (id,project_id,parent_id,"order",name,description,linked_spec_ids,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)',
-      id, input.projectId, input.parentId ?? null, order, input.name, input.description ?? "", JSON.stringify(input.linkedSpecIds ?? []), t, t);
+    run('INSERT INTO pages (id,project_id,parent_id,"order",name,description,linked_spec_ids,meta,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+      id, input.projectId, input.parentId ?? null, order, input.name, input.description ?? "", JSON.stringify(input.linkedSpecIds ?? []), JSON.stringify(input.meta ?? {}), t, t);
     projects.touch(input.projectId);
     return this.get(id)!;
   },
-  update(id: string, patch: Partial<Pick<Page, "parentId" | "order" | "name" | "description" | "linkedSpecIds">>): Page | undefined {
+  update(id: string, patch: Partial<Pick<Page, "parentId" | "order" | "name" | "description" | "linkedSpecIds">> & { meta?: PageMeta }): Page | undefined {
     const cur = this.get(id); if (!cur) return;
-    const n = { ...cur, ...patch };
-    run('UPDATE pages SET parent_id=?, "order"=?, name=?, description=?, linked_spec_ids=?, updated_at=? WHERE id=?',
-      n.parentId, n.order, n.name, n.description, JSON.stringify(n.linkedSpecIds), now(), id);
+    // meta 는 부분 갱신(좌표만/표 셀만 바꾸는 호출이 대부분)
+    const n = { ...cur, ...patch, meta: patch.meta ? { ...cur.meta, ...patch.meta } : cur.meta };
+    run('UPDATE pages SET parent_id=?, "order"=?, name=?, description=?, linked_spec_ids=?, meta=?, updated_at=? WHERE id=?',
+      n.parentId, n.order, n.name, n.description, JSON.stringify(n.linkedSpecIds), JSON.stringify(n.meta), now(), id);
     projects.touch(cur.projectId);
     return this.get(id);
   },
@@ -45,6 +47,30 @@ export const pages = {
   },
   reorder(projectId: string, parentId: string | null, orderedIds: string[]) {
     tx(() => orderedIds.forEach((id, i) => run('UPDATE pages SET "order"=?, parent_id=?, updated_at=? WHERE id=? AND project_id=?', i, parentId, now(), id, projectId)));
+    projects.touch(projectId);
+  },
+  /** 캔버스 좌표 일괄 저장(여러 노드 동시 이동). */
+  setPositions(projectId: string, list: { id: string; x: number; y: number }[]) {
+    const byId = new Map(this.list(projectId).map((p) => [p.id, p]));
+    tx(() => {
+      for (const { id, x, y } of list) {
+        const cur = byId.get(id); if (!cur) continue;
+        run("UPDATE pages SET meta=?, updated_at=? WHERE id=? AND project_id=?", JSON.stringify({ ...cur.meta, x, y }), now(), id, projectId);
+      }
+    });
+    projects.touch(projectId);
+  },
+  /** 저장된 좌표를 지워 자동 배치(dagre)로 되돌린다. meta 병합 갱신으로는 키 삭제가 안 되므로 별도 경로. */
+  clearPositions(projectId: string) {
+    const list = this.list(projectId);
+    tx(() => {
+      for (const p of list) {
+        if (p.meta.x === undefined && p.meta.y === undefined) continue;
+        const rest = { ...p.meta };
+        delete rest.x; delete rest.y;
+        run("UPDATE pages SET meta=?, updated_at=? WHERE id=?", JSON.stringify(rest), now(), p.id);
+      }
+    });
     projects.touch(projectId);
   },
 };
@@ -223,8 +249,8 @@ export const versions = {
       for (const it of snap.items) run('INSERT INTO items (id,project_id,type,parent_id,"order",title,description,priority,status,data,ai_proposed,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
         it.id, v.projectId, it.type, it.parentId, it.order, it.title, it.description, it.priority, it.status, JSON.stringify(it.data), it.aiProposed ? 1 : 0, it.createdAt, it.updatedAt);
       run("DELETE FROM pages WHERE project_id=?", v.projectId);
-      for (const p of snap.pages) run('INSERT INTO pages (id,project_id,parent_id,"order",name,description,linked_spec_ids,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)',
-        p.id, v.projectId, p.parentId, p.order, p.name, p.description, JSON.stringify(p.linkedSpecIds), p.createdAt, p.updatedAt);
+      for (const p of snap.pages) run('INSERT INTO pages (id,project_id,parent_id,"order",name,description,linked_spec_ids,meta,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+        p.id, v.projectId, p.parentId, p.order, p.name, p.description, JSON.stringify(p.linkedSpecIds), JSON.stringify(p.meta ?? {}), p.createdAt, p.updatedAt);
       run("DELETE FROM flows WHERE project_id=?", v.projectId);
       for (const f of snap.flows) run("INSERT INTO flows (id,project_id,name,request,nodes,edges,frames,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
         f.id, v.projectId, f.name, f.request, JSON.stringify(f.nodes), JSON.stringify(f.edges), JSON.stringify(f.frames ?? []), f.createdAt, f.updatedAt);

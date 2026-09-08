@@ -146,6 +146,26 @@ export interface Project {
 }
 
 /** 정보구조도 페이지 */
+/**
+ * 페이지 부가정보. 표(IA 구성도) 컬럼과 캔버스 좌표를 한 JSON 컬럼에 모아둔다.
+ * 컬럼을 낱개로 늘리면 `INSERT INTO pages` 를 쓰는 3곳(생성·버전복원·프로젝트복제)이
+ * 매번 같이 늘어나고, 한 곳이라도 빠지면 조용히 값이 사라진다(실제로 겪은 버그).
+ */
+export interface PageMeta {
+  /** 캔버스에 저장된 좌표. 없으면 자동 배치(dagre). */
+  x?: number;
+  y?: number;
+  /** 표 컬럼 — 전부 자유 입력이며 다른 문서와 자동 연동되지 않는다. */
+  type?: string;
+  directory?: string;
+  fileName?: string;
+  adminFn?: string;
+  relatedPages?: string;
+}
+
+/** 표에서 자주 쓰는 페이지 타입 후보(자유 입력이므로 강제는 아님) */
+export const PAGE_TYPE_SUGGESTIONS = ["텍스트", "리스트", "상세", "폼", "게시판", "DB", "이미지", "팝업", "플래시"] as const;
+
 export interface Page {
   id: string;
   projectId: string;
@@ -154,6 +174,7 @@ export interface Page {
   name: string;
   description: string;
   linkedSpecIds: string[];
+  meta: PageMeta;
   createdAt: string;
   updatedAt: string;
 }

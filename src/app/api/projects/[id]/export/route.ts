@@ -1,8 +1,10 @@
 import { handler, ok, bad, notFound, type Params } from "@/lib/http";
-import { projects, items, flows, wireframes, activity } from "@/lib/repo";
+import { projects, items, flows, pages, wireframes, versions, activity } from "@/lib/repo";
 import { featuresMarkdown, featuresText, featuresXlsx } from "@/lib/export/features";
 import { flowToMermaid } from "@/lib/export/mermaid";
 import { wireframeToHtml } from "@/lib/export/wireframeHtml";
+import { iaXlsx } from "@/lib/export/ia";
+import { screenSpecHtml } from "@/lib/export/screenSpec";
 
 const safe = (s: string) => s.replace(/[\\/:*?"<>|\n]+/g, " ").trim().slice(0, 80) || "export";
 function file(body: BodyInit, name: string, type: string) {
@@ -12,6 +14,7 @@ function file(body: BodyInit, name: string, type: string) {
 /**
  * GET ?type=features-xlsx|features-md|features-txt|flow-mermaid&flowId=|wireframe-html&wfId=
  *     ?type=flows (json list for the dialog) | flow-json&flowId= | features-html (printable html for PNG)
+ *     ?type=ia-xlsx (IA 구성도 엑셀) | screen-spec-html (화면설계서 전체)
  */
 export const GET = handler(async (req, { params }: Params<"id">) => {
   const { id } = await params;
@@ -31,6 +34,22 @@ export const GET = handler(async (req, { params }: Params<"id">) => {
     if (type === "features-xlsx") return file(new Uint8Array(await featuresXlsx(p, list)), `${base}_기능명세서.xlsx`, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     if (type === "features-md") return file(featuresMarkdown(p, list), `${base}_기능명세서.md`, "text/markdown; charset=utf-8");
     if (type === "features-txt") return file(featuresText(p, list), `${base}_기능명세서.txt`, "text/plain; charset=utf-8");
+  }
+  if (type === "ia-xlsx") {
+    activity.log(id, "export", type);
+    return file(new Uint8Array(await iaXlsx(p, pages.list(id), items.list(id))), `${base}_IA구성도.xlsx`, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  }
+  if (type === "screen-spec-html") {
+    activity.log(id, "export", type);
+    const html = screenSpecHtml({
+      project: p,
+      pages: pages.list(id),
+      items: items.list(id),
+      flows: flows.list(id),
+      wireframes: wireframes.list(id).map((wf) => ({ wf, pages: wireframes.pages(wf.id) })),
+      versions: versions.list(id),
+    });
+    return file(html, `${base}_화면설계서.html`, "text/html; charset=utf-8");
   }
   if (type === "flow-mermaid") {
     const f = flows.get(u.searchParams.get("flowId") ?? "");

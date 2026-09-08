@@ -5,9 +5,11 @@ export type ViewMode = "detail" | "simple";
 
 /** AI 제안: 트리(신규 페이지) 또는 보강(기존 페이지 수정) */
 export interface ProposedPage { key: string; name: string; description: string; checked: boolean; children: ProposedPage[] }
+export interface ProposedLink { pageId: string; specIds: string[]; checked: boolean }
 export type IaProposal =
   | { kind: "tree"; parentId: string | null; pages: ProposedPage[] }
-  | { kind: "enrich"; updates: { id: string; name: string; description: string; checked: boolean }[] };
+  | { kind: "enrich"; updates: { id: string; name: string; description: string; checked: boolean }[] }
+  | { kind: "link"; links: ProposedLink[] };
 
 export function childrenOf(pages: Page[], parentId: string | null): Page[] {
   return pages.filter((p) => p.parentId === parentId).sort((a, b) => a.order - b.order || a.createdAt.localeCompare(b.createdAt));
