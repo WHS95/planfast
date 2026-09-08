@@ -15,6 +15,7 @@ import { TreeView } from "./TreeView";
 import { DirectoryView } from "./DirectoryView";
 import { DocumentView } from "./DocumentView";
 import { ancestorIds, colorMap, flattenAll, matchesQuery, numberMap } from "./utils";
+import { useDialog } from "@/components/ui/DialogProvider";
 
 const VIEWS: { key: ViewMode; label: string; icon: React.ComponentType<{ size?: number }> }[] = [
   { key: "tree", label: "트리 뷰", icon: Network },
@@ -23,6 +24,7 @@ const VIEWS: { key: ViewMode; label: string; icon: React.ComponentType<{ size?: 
 ];
 
 export function FeaturesEditor({ projectId, initial }: { projectId: string; initial: Item[] }) {
+  const { confirm, alert } = useDialog();
   const store = useItemStore(projectId, initial);
   const { setSelection } = useEditor();
   const [view, setView] = useState<ViewMode>("tree");
@@ -85,14 +87,14 @@ export function FeaturesEditor({ projectId, initial }: { projectId: string; init
       if (parentId) setCollapsed((c) => { if (!c.has(parentId)) return c; const n = new Set(c); n.delete(parentId); return n; });
       if (r.created[0]) setSelectedId(r.created[0].id);
     } catch (e) { alert((e as Error).message); } finally { setAi({ busy: false, parentId: null }); }
-  }, [projectId, store]);
+  }, [projectId, store, alert]);
 
   const resolveProposals = useCallback(async (action: ProposalAction, ids?: string[]) => {
     setResolving(true);
     try { await store.resolveProposals(action, ids); }
     catch (e) { alert((e as Error).message); await store.reload(); }
     finally { setResolving(false); }
-  }, [store]);
+  }, [store, alert]);
 
   const ctx = useMemo<FeaturesCtx>(() => ({
     projectId, store, view, setView, selectedId, select, collapsed, toggleCollapse, query, matchIds, currentMatchId,
@@ -144,7 +146,7 @@ export function FeaturesEditor({ projectId, initial }: { projectId: string; init
                 <span className="text-muted hidden sm:inline">· 검토 후 승인하면 명세서에 반영됩니다.</span>
                 <div className="ml-auto flex items-center gap-1">
                   {resolving && <Spinner className="w-3 h-3 text-accent" />}
-                  <button className="btn btn-sm btn-ghost text-muted hover:text-danger" disabled={resolving} onClick={() => { if (confirm(`매니 제안 ${proposalIds.length}개를 모두 삭제할까요?`)) void resolveProposals("reject"); }}><X size={12} /> 전체 거절</button>
+                  <button className="btn btn-sm btn-ghost text-muted hover:text-danger" disabled={resolving} onClick={async () => { if (await confirm({ message: `매니 제안 ${proposalIds.length}개를 모두 삭제할까요?`, confirmLabel: "전체 거절", danger: true })) void resolveProposals("reject"); }}><X size={12} /> 전체 거절</button>
                   <button className="btn btn-sm btn-primary" disabled={resolving} onClick={() => void resolveProposals("approve")}><Check size={12} /> 전체 승인</button>
                 </div>
               </div>

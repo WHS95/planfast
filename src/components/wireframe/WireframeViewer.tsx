@@ -7,6 +7,7 @@ import type { Device, WireframePage } from "@/lib/types";
 import { useEditor, broadcastChange } from "@/components/editor/EditorContext";
 import { Spinner } from "@/components/ui";
 import type { WfSummary } from "./WireframeTab";
+import { useDialog } from "@/components/ui/DialogProvider";
 
 function StatusIcon({ status }: { status: WireframePage["status"] }) {
   if (status === "done") return <Check size={13} className="text-ok" />;
@@ -16,6 +17,7 @@ function StatusIcon({ status }: { status: WireframePage["status"] }) {
 }
 
 export function WireframeViewer({ projectId, wf, onChange, onReload }: { projectId: string; wf: WfSummary; onChange: (w: WfSummary) => void; onReload: () => void }) {
+  const { confirm, alert, prompt } = useDialog();
   const { mention } = useEditor();
   const [pageId, setPageId] = useState<string | null>(wf.pages[0]?.id ?? null);
   const [editing, setEditing] = useState(false);
@@ -30,15 +32,15 @@ export function WireframeViewer({ projectId, wf, onChange, onReload }: { project
   const remaining = pages.filter((p) => p.status === "pending" || p.status === "error").length;
 
   async function generate(mode: "continue" | "all" | "page", opts: { pageId?: string; request?: string } = {}) {
-    if (mode === "all" && !confirm("모든 페이지를 처음부터 다시 생성할까요? 기존 HTML은 덮어씌워집니다.")) return;
+    if (mode === "all" && !(await confirm({ message: "모든 페이지를 처음부터 다시 생성할까요?\n기존 HTML은 덮어씌워집니다.", confirmLabel: "전체 다시 생성", danger: true }))) return;
     setBusy(mode);
     try { onChange(await api<WfSummary>(`${base}/generate`, { method: "POST", json: { mode, ...opts } })); }
     catch (e) { alert((e as Error).message); }
     finally { setBusy(null); }
   }
-  function regenPage() {
+  async function regenPage() {
     if (!page) return;
-    const request = prompt(`"${page.name}" 페이지를 다시 생성합니다. 추가 요청사항이 있으면 입력하세요 (없으면 비워두세요).`, "");
+    const request = await prompt({ title: "페이지 다시 생성", message: `"${page.name}" 페이지를 다시 생성합니다. 추가 요청사항이 있으면 입력하세요.`, placeholder: "예: 카드형 목록으로 바꿔주세요 (비워두면 그대로 재생성)", confirmLabel: "다시 생성" });
     if (request === null) return;
     generate("page", { pageId: page.id, request: request.trim() || undefined });
   }
@@ -53,7 +55,7 @@ export function WireframeViewer({ projectId, wf, onChange, onReload }: { project
     onChange({ ...wf, pages: wf.pages.map((x) => (x.id === p.id ? np : x)) });
   }
   async function removePage(p: WireframePage) {
-    if (!confirm(`"${p.name}" 페이지를 삭제할까요?`)) return;
+    if (!(await confirm({ message: `"${p.name}" 페이지를 삭제할까요?`, confirmLabel: "삭제", danger: true }))) return;
     await api(`${base}/pages/${p.id}`, { method: "DELETE" });
     onChange({ ...wf, pages: wf.pages.filter((x) => x.id !== p.id) });
     broadcastChange(projectId);

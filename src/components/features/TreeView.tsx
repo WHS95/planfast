@@ -14,6 +14,7 @@ import { ItemDrawer } from "./ItemDetail";
 import { Highlight } from "./Highlight";
 import { NewBadge, NumTag } from "./controls";
 import { flattenVisible, matchesQuery, tint } from "./utils";
+import { useDialog } from "@/components/ui/DialogProvider";
 
 const W = 240;
 const NODE_H: Record<ItemType, number> = { requirement: 78, feature: 72, spec: 68 };
@@ -48,6 +49,7 @@ function PrdNodeView({ data }: NodeProps<PrdNode>) {
 }
 
 function ItemNodeView({ data, selected }: NodeProps<ItemNode>) {
+  const { confirm } = useDialog();
   const { item, num, color, childCount, collapsed, matched, current, q } = data;
   const { store, toggleCollapse, addChild, removeItem } = useFeatures();
   const [editing, setEditing] = useState(false);
@@ -102,7 +104,7 @@ function ItemNodeView({ data, selected }: NodeProps<ItemNode>) {
           </button>
         )}
         <button className="btn btn-icon !p-1 bg-panel border hover:text-danger" title="삭제"
-          onClick={(e) => { e.stopPropagation(); if (confirm(`'${item.title || "(제목 없음)"}' 항목과 하위 항목을 삭제할까요?`)) void removeItem(item.id); }}>
+          onClick={async (e) => { e.stopPropagation(); if (await confirm({ message: `'${item.title || "(제목 없음)"}' 항목과 하위 항목을 삭제할까요?`, confirmLabel: "삭제", danger: true })) void removeItem(item.id); }}>
           <Trash2 size={11} />
         </button>
       </div>

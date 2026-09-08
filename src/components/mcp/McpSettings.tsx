@@ -4,10 +4,12 @@ import { Check, Copy, KeyRound, Plus, Trash2 } from "lucide-react";
 import type { ApiKey } from "@/lib/types";
 import { api } from "@/lib/api";
 import { Empty, Spinner } from "@/components/ui";
+import { useDialog } from "@/components/ui/DialogProvider";
 
 const fmt = (iso: string) => new Date(iso).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
 
 export function McpSettings({ initialKeys, initialAllow, tools }: { initialKeys: ApiKey[]; initialAllow: boolean; tools: { name: string; desc: string }[] }) {
+  const { confirm } = useDialog();
   const [keys, setKeys] = useState(initialKeys);
   const [allow, setAllow] = useState(initialAllow);
   const [name, setName] = useState("");
@@ -24,7 +26,7 @@ export function McpSettings({ initialKeys, initialAllow, tools }: { initialKeys:
     try { const k = await api<ApiKey>("/api/keys", { method: "POST", json: { name: name || "새 키" } }); setFresh(k); setName(""); await reload(); }
     catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   }
-  async function remove(k: ApiKey) { if (!confirm(`"${k.name}" 키를 삭제할까요? 이 키를 쓰는 도구는 즉시 연결이 끊겨요.`)) return; await api(`/api/keys/${k.id}`, { method: "DELETE" }); if (fresh?.id === k.id) setFresh(null); await reload(); }
+  async function remove(k: ApiKey) { if (!(await confirm({ message: `"${k.name}" 키를 삭제할까요?\n이 키를 쓰는 도구는 즉시 연결이 끊겨요.`, confirmLabel: "삭제", danger: true }))) return; await api(`/api/keys/${k.id}`, { method: "DELETE" }); if (fresh?.id === k.id) setFresh(null); await reload(); }
   async function toggleAllow() { const v = !allow; setAllow(v); await api("/api/keys", { method: "POST", json: { allowLocalNoAuth: v } }); }
 
   const claudeCmd = `claude mcp add --transport http --scope user planfast ${url} --header "Authorization: Bearer ${keyPlaceholder}"`;

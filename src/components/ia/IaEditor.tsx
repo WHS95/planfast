@@ -12,6 +12,7 @@ import { PageList } from "./PageList";
 import { PageDrawer } from "./PageDrawer";
 import { IaProposals } from "./IaProposals";
 import { childrenOf, type IaProposal, type ProposedPage, type SpecRef, type ViewMode } from "./types";
+import { useDialog } from "@/components/ui/DialogProvider";
 
 type AiTree = { name: string; description: string; children?: AiTree[] };
 const toProposed = (list: AiTree[]): ProposedPage[] => list.map((n) => ({ key: rid(), name: n.name, description: n.description ?? "", checked: true, children: toProposed(n.children ?? []) }));
@@ -19,6 +20,7 @@ const toBulk = (list: ProposedPage[]): { name: string; description: string; chil
   list.filter((p) => p.checked).map((p) => ({ name: p.name, description: p.description, children: toBulk(p.children) }));
 
 export function IaEditor({ projectId, initialPages, initialSpecs }: { projectId: string; initialPages: Page[]; initialSpecs: SpecRef[] }) {
+  const { confirm, alert } = useDialog();
   const { tick } = useEditor();
   const [pages, setPages] = useState<Page[]>(initialPages);
   const [specs, setSpecs] = useState<SpecRef[]>(initialSpecs);
@@ -87,14 +89,14 @@ export function IaEditor({ projectId, initialPages, initialSpecs }: { projectId:
         .catch((e) => alert((e as Error).message));
     }, 500);
     return () => clearTimeout(t);
-  }, [pendingMoves, projectId]);
+  }, [pendingMoves, projectId, alert]);
   function movePages(positions: { id: string; x: number; y: number }[]) {
     setPages((ps) => ps.map((p) => { const m = positions.find((q) => q.id === p.id); return m ? { ...p, meta: { ...p.meta, x: m.x, y: m.y } } : p; }));
     setSaved(false);
     setPendingMoves((prev) => ({ ...prev, ...Object.fromEntries(positions.map((p) => [p.id, p])) }));
   }
   async function autoArrange() {
-    if (!confirm("저장된 위치를 지우고 자동 정렬할까요?")) return;
+    if (!(await confirm({ message: "저장된 위치를 지우고 계층 구조대로 다시 배치할까요?\n직접 옮겨둔 위치는 사라집니다.", confirmLabel: "자동 정렬" }))) return;
     setBusy("layout");
     try { setPages(await api<Page[]>(`/api/projects/${projectId}/pages/layout`, { method: "POST", json: { reset: true } })); broadcastChange(projectId); }
     catch (e) { alert((e as Error).message); } finally { setBusy(null); }
@@ -103,7 +105,7 @@ export function IaEditor({ projectId, initialPages, initialSpecs }: { projectId:
   async function removePage(id: string) {
     const p = pages.find((x) => x.id === id); if (!p) return;
     const kids = childrenOf(pages, id).length;
-    if (!confirm(`"${p.name}" 페이지를 삭제할까요?${kids ? ` 하위 페이지도 함께 삭제됩니다.` : ""}`)) return;
+    if (!(await confirm({ message: `"${p.name}" 페이지를 삭제할까요?${kids ? `\n하위 페이지 ${kids}개도 함께 삭제됩니다.` : ""}`, confirmLabel: "삭제", danger: true }))) return;
     await api(`/api/projects/${projectId}/pages/${id}`, { method: "DELETE" });
     setSelectedId(null); await reload(); broadcastChange(projectId);
   }

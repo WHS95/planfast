@@ -6,12 +6,14 @@ import type { Project, ShareLink } from "@/lib/types";
 import { api } from "@/lib/api";
 import { Dialog } from "@/components/ui/Dialog";
 import { Empty, Spinner } from "@/components/ui";
+import { useDialog } from "@/components/ui/DialogProvider";
 
 type Expiry = "never" | "7" | "30" | "custom";
 const EXPIRY: { key: Expiry; label: string }[] = [{ key: "never", label: "무기한" }, { key: "7", label: "7일" }, { key: "30", label: "30일" }, { key: "custom", label: "직접 입력" }];
 const fmtDate = (iso: string) => new Date(iso).toLocaleString("ko-KR", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
 
 export function ShareDialog({ project, onClose }: { project: Project; current?: string; onClose: () => void }) {
+  const { confirm } = useDialog();
   const [list, setList] = useState<ShareLink[] | null>(null);
   const [expiry, setExpiry] = useState<Expiry>("never");
   const [date, setDate] = useState("");
@@ -36,7 +38,7 @@ export function ShareDialog({ project, onClose }: { project: Project; current?: 
   }
   async function copy(l: ShareLink) { try { await navigator.clipboard.writeText(urlOf(l)); setCopied(l.id); setTimeout(() => setCopied(null), 1500); } catch { /* ignore */ } }
   async function toggle(l: ShareLink) { await api(`${base}/${l.id}`, { method: "PATCH", json: { disabled: !l.disabled } }); await load(); }
-  async function remove(l: ShareLink) { if (!confirm("링크를 삭제할까요? 이 링크로는 더 이상 열 수 없어요.")) return; await api(`${base}/${l.id}`, { method: "DELETE" }); await load(); }
+  async function remove(l: ShareLink) { if (!(await confirm({ message: "링크를 삭제할까요?\n이 링크로는 더 이상 열 수 없어요.", confirmLabel: "삭제", danger: true }))) return; await api(`${base}/${l.id}`, { method: "DELETE" }); await load(); }
   const expired = (l: ShareLink) => !!l.expiresAt && new Date(l.expiresAt) < new Date();
 
   return (

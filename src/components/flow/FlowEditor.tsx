@@ -9,8 +9,10 @@ import { useEditor, broadcastChange } from "@/components/editor/EditorContext";
 import { Spinner } from "@/components/ui";
 import { FlowCanvas } from "./FlowCanvas";
 import { CreateFlowDialog } from "./CreateFlowDialog";
+import { useDialog } from "@/components/ui/DialogProvider";
 
 export function FlowEditor({ projectId, initialFlows, initialReadiness }: { projectId: string; initialFlows: Flow[]; initialReadiness: FlowReadiness }) {
+  const { confirm, alert, prompt } = useDialog();
   const { tick, setSelection, mention } = useEditor();
   const [flows, setFlows] = useState<Flow[]>(initialFlows);
   const [readiness, setReadiness] = useState(initialReadiness);
@@ -55,7 +57,7 @@ export function FlowEditor({ projectId, initialFlows, initialReadiness }: { proj
   }
   async function revise() {
     if (!active) return;
-    const request = prompt("수정본에 반영할 요청 사항 (선택)", active.request) ?? null;
+    const request = await prompt({ title: "수정본 생성", message: "수정본에 반영할 요청 사항 (선택)", defaultValue: active.request, confirmLabel: "생성" });
     if (request === null) return;
     setBusy("revise");
     try {
@@ -64,7 +66,7 @@ export function FlowEditor({ projectId, initialFlows, initialReadiness }: { proj
     } catch (e) { alert((e as Error).message); } finally { setBusy(null); }
   }
   async function remove() {
-    if (!active || !confirm(`"${active.name}" 유저플로우를 삭제할까요?`)) return;
+    if (!active || !(await confirm({ message: `"${active.name}" 유저플로우를 삭제할까요?`, confirmLabel: "삭제", danger: true }))) return;
     await api(`/api/projects/${projectId}/flows/${active.id}`, { method: "DELETE" });
     setFlows((fs) => fs.filter((f) => f.id !== active.id)); setActiveId(null); setSelection(null); broadcastChange(projectId);
   }

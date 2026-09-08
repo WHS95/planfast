@@ -10,6 +10,7 @@ import { Highlight } from "./Highlight";
 import { SlotsEditor } from "./ItemDetail";
 import { NewBadge, NumTag, PriorityBarsSelect, StatusChipSelect } from "./controls";
 import { TYPE_CLASS, ancestorIds, tint } from "./utils";
+import { useDialog } from "@/components/ui/DialogProvider";
 
 /** click-to-edit text: shows highlighted text, becomes input/textarea on click */
 function Inline({ value, onChange, q, className, placeholder, multiline }: { value: string; onChange: (v: string) => void; q: string; className?: string; placeholder: string; multiline?: boolean }) {
@@ -29,6 +30,7 @@ function Inline({ value, onChange, q, className, placeholder, multiline }: { val
 }
 
 function Meta({ item }: { item: Item }) {
+  const { confirm } = useDialog();
   const { store, removeItem, select, selectedId, numbers, resolveProposals } = useFeatures();
   const { mention } = useEditor();
   const num = numbers.get(item.id);
@@ -47,7 +49,7 @@ function Meta({ item }: { item: Item }) {
       ) : (
         <>
           <button className="btn btn-icon text-muted" title="매니에게 질문" onClick={() => { select(item.id); mention({ type: "item", id: item.id, label: item.title || ITEM_TYPE_LABEL[item.type] }); }}><MessageSquare size={13} /></button>
-          <button className="btn btn-icon text-muted hover:text-danger" title="삭제" onClick={() => { if (confirm(`'${item.title || "(제목 없음)"}' 항목과 하위 항목을 삭제할까요?`)) void removeItem(item.id); }}><Trash2 size={13} /></button>
+          <button className="btn btn-icon text-muted hover:text-danger" title="삭제" onClick={async () => { if (await confirm({ message: `'${item.title || "(제목 없음)"}' 항목과 하위 항목을 삭제할까요?`, confirmLabel: "삭제", danger: true })) void removeItem(item.id); }}><Trash2 size={13} /></button>
         </>
       )}
     </div>

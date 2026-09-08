@@ -6,10 +6,12 @@ import { api, debounce } from "@/lib/api";
 import { rid, type Prd, type PrdField } from "@/lib/types";
 import { useEditor, broadcastChange } from "@/components/editor/EditorContext";
 import { Spinner } from "@/components/ui";
+import { useDialog } from "@/components/ui/DialogProvider";
 
 type Proposal = Record<string, string>; // fieldId -> proposed content
 
 export function PrdEditor({ projectId, initial }: { projectId: string; initial: Prd }) {
+  const { alert } = useDialog();
   const { tick, mention } = useEditor();
   const [prd, setPrd] = useState<Prd>(initial);
   const [proposal, setProposal] = useState<Proposal>({});

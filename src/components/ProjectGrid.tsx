@@ -6,13 +6,15 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import type { Project } from "@/lib/types";
 import clsx from "clsx";
+import { useDialog } from "@/components/ui/DialogProvider";
 
 export function ProjectGrid({ projects, trash = false }: { projects: Project[]; trash?: boolean }) {
+  const { confirm } = useDialog();
   const router = useRouter();
   const [menu, setMenu] = useState<string | null>(null);
   async function act(id: string, action: string) {
     setMenu(null);
-    if (action === "delete") { if (!confirm("영구 삭제할까요? 되돌릴 수 없습니다.")) return; await api(`/api/projects/${id}`, { method: "DELETE" }); }
+    if (action === "delete") { if (!(await confirm({ message: "영구 삭제할까요? 되돌릴 수 없습니다.", confirmLabel: "영구 삭제", danger: true }))) return; await api(`/api/projects/${id}`, { method: "DELETE" }); }
     else await api(`/api/projects/${id}`, { method: "PATCH", json: { action } });
     router.refresh();
   }

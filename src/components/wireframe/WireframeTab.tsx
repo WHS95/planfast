@@ -7,11 +7,13 @@ import { useEditor, broadcastChange } from "@/components/editor/EditorContext";
 import { Empty } from "@/components/ui";
 import { NewWireframeDialog } from "./NewWireframeDialog";
 import { WireframeViewer } from "./WireframeViewer";
+import { useDialog } from "@/components/ui/DialogProvider";
 
 export type WfSummary = Wireframe & { running: boolean; pages: WireframePage[] };
 export type FlowLite = Pick<Flow, "id" | "name" | "nodes" | "edges">;
 
 export function WireframeTab({ projectId, initialWireframes, initialFlows }: { projectId: string; initialWireframes: WfSummary[]; initialFlows: FlowLite[] }) {
+  const { confirm, alert, prompt } = useDialog();
   const { tick } = useEditor();
   const [list, setList] = useState<WfSummary[]>(initialWireframes);
   const [selectedId, setSelectedId] = useState<string | null>(initialWireframes[0]?.id ?? null);
@@ -55,13 +57,13 @@ export function WireframeTab({ projectId, initialWireframes, initialFlows }: { p
 
   async function rename() {
     if (!detail) return;
-    const name = prompt("와이어프레임 이름", detail.name)?.trim();
+    const name = (await prompt({ title: "이름 변경", message: "와이어프레임 이름", defaultValue: detail.name, confirmLabel: "변경" }))?.trim();
     if (!name || name === detail.name) return;
     await api(`/api/projects/${projectId}/wireframes/${detail.id}`, { method: "PATCH", json: { name } });
     await loadDetail(detail.id); broadcastChange(projectId);
   }
   async function remove() {
-    if (!detail || !confirm(`"${detail.name}" 와이어프레임을 삭제할까요? 페이지도 모두 삭제됩니다.`)) return;
+    if (!detail || !(await confirm({ message: `"${detail.name}" 와이어프레임을 삭제할까요?\n페이지도 모두 삭제됩니다.`, confirmLabel: "삭제", danger: true }))) return;
     try { await api(`/api/projects/${projectId}/wireframes/${detail.id}`, { method: "DELETE" }); } catch (e) { alert((e as Error).message); return; }
     await reloadList(); broadcastChange(projectId);
   }

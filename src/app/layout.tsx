@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Sidebar } from "@/components/Sidebar";
+import { DialogProvider } from "@/components/ui/DialogProvider";
 import { appSettings } from "@/lib/repo";
 
 export const metadata: Metadata = { title: "PlanFast", description: "AI 기획 에디터 (로컬)" };
@@ -17,8 +18,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         )}
       </head>
       <body className="h-full flex" suppressHydrationWarning>
-        <Sidebar />
-        <main className="flex-1 min-w-0 flex flex-col h-full overflow-hidden">{children}</main>
+        <DialogProvider>
+          <Sidebar />
+          <main className="flex-1 min-w-0 flex flex-col h-full overflow-hidden">{children}</main>
+        </DialogProvider>
       </body>
     </html>
   );

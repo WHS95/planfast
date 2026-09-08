@@ -105,6 +105,8 @@ textarea.field { @apply resize-none; field-sizing: content; min-height: 2.25rem;
 .btn:focus-visible { outline: none; box-shadow: var(--ring); }
 .btn-primary { @apply bg-accent text-white border-accent; }
 .btn-primary:hover, .btn-primary:active { background: color-mix(in srgb, #000 10%, var(--accent)); border-color: color-mix(in srgb, #000 10%, var(--accent)); }
+.btn-danger { @apply text-white; background: var(--danger); border-color: var(--danger); }
+.btn-danger:hover, .btn-danger:active { background: color-mix(in srgb, #000 12%, var(--danger)); border-color: color-mix(in srgb, #000 12%, var(--danger)); }
 .btn-ghost { @apply border-transparent bg-transparent; }
 .btn-ghost:hover { background: var(--hover); }
 .btn-ghost:active { background: var(--hover-strong); }

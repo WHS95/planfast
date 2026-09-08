@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { useEditor } from "@/components/editor/EditorContext";
 import { Empty, Spinner } from "@/components/ui";
 import { timeAgo } from "./VersionPanel";
+import { useDialog } from "@/components/ui/DialogProvider";
 
 const TYPE_LABEL: Record<string, string> = { item: "항목", prd: "PRD", flow: "플로우", wireframe: "와이어프레임", page: "페이지", project: "프로젝트" };
 function targetLabel(t: string, sel: { type: string; id: string; label: string } | null) {
@@ -17,6 +18,7 @@ function targetLabel(t: string, sel: { type: string; id: string; label: string }
 }
 
 export function CommentPanel({ project }: { project: Project }) {
+  const { confirm } = useDialog();
   const { tick, selection } = useEditor();
   const [list, setList] = useState<Comment[] | null>(null);
   const [showResolved, setShowResolved] = useState(false);
@@ -41,7 +43,7 @@ export function CommentPanel({ project }: { project: Project }) {
     try { await api(base, { method: "POST", json: { target, body } }); await load(); } catch (e) { setErr((e as Error).message); }
   }
   async function patch(id: string, p: Partial<Pick<Comment, "body" | "resolved">>) { await api(`${base}/${id}`, { method: "PATCH", json: p }); await load(); }
-  async function remove(id: string) { if (!confirm("코멘트를 삭제할까요?")) return; await api(`${base}/${id}`, { method: "DELETE" }); await load(); }
+  async function remove(id: string) { if (!(await confirm({ message: "코멘트를 삭제할까요?", confirmLabel: "삭제", danger: true }))) return; await api(`${base}/${id}`, { method: "DELETE" }); await load(); }
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">

@@ -11,6 +11,7 @@ import { useFeatures } from "./FeaturesContext";
 import { CommentBox } from "./CommentBox";
 import { NewBadge, NumTag, PriorityBarsSelect, StatusChipSelect } from "./controls";
 import { TYPE_CLASS, tint } from "./utils";
+import { useDialog } from "@/components/ui/DialogProvider";
 
 /** textarea that grows with its content */
 function AutoTextarea({ value, onChange, className, ...rest }: { value: string; onChange: (v: string) => void; className?: string } & Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, "value" | "onChange" | "className">) {
@@ -43,6 +44,7 @@ export function ItemDrawer(props: { item: Item; onPrev?: () => void; onNext?: ()
 
 /** Full editor for one item. Used by the tree-view drawer and the directory-view drawer. */
 export function ItemDetail({ item, onPrev, onNext, onClose }: { item: Item; onPrev?: () => void; onNext?: () => void; onClose?: () => void }) {
+  const { confirm } = useDialog();
   const { store, addChild, removeItem, aiGenerate, aiBusy, aiBusyParentId, resolveProposals, projectId, colors, numbers } = useFeatures();
   const { mention } = useEditor();
   const childType = CHILD_ITEM_TYPE[item.type];
@@ -68,7 +70,7 @@ export function ItemDetail({ item, onPrev, onNext, onClose }: { item: Item; onPr
           ) : (
             <>
               <button className="btn btn-icon text-muted" title="매니에게 질문" onClick={() => mention({ type: "item", id: item.id, label: item.title || ITEM_TYPE_LABEL[item.type] })}><MessageSquare size={14} /></button>
-              <button className="btn btn-icon text-muted hover:text-danger" title="삭제" onClick={() => { if (confirm(`'${item.title || "(제목 없음)"}' 항목과 하위 항목을 모두 삭제할까요?`)) void removeItem(item.id); }}><Trash2 size={14} /></button>
+              <button className="btn btn-icon text-muted hover:text-danger" title="삭제" onClick={async () => { if (await confirm({ message: `'${item.title || "(제목 없음)"}' 항목과 하위 항목을 모두 삭제할까요?`, confirmLabel: "삭제", danger: true })) void removeItem(item.id); }}><Trash2 size={14} /></button>
             </>
           )}
           {onClose && <button className="btn btn-icon" title="닫기" onClick={onClose}><X size={14} /></button>}
@@ -185,6 +187,7 @@ function FeatureEditor({ data, onChange }: { data: FeatureData; onChange: (d: Fe
 
 // ---------------------------------------------------------------- spec slots
 export function SlotsEditor({ projectId, item, data, onChange, compact }: { projectId: string; item: Item; data: SpecData; onChange: (d: SpecData) => void; compact?: boolean }) {
+  const { alert } = useDialog();
   const [busy, setBusy] = useState(false);
   const [proposal, setProposal] = useState<Partial<Record<SpecSlot, string>>>({});
   const hidden = new Set(data.hiddenSlots ?? []);

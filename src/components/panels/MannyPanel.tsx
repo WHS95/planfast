@@ -11,6 +11,7 @@ import { Markdown } from "@/components/manny/Markdown";
 import { StreamingReply } from "@/components/manny/StreamingReply";
 import { ProposalCard } from "@/components/manny/ProposalCard";
 import { MentionPicker, type MentionChip, type MentionIndex } from "@/components/manny/MentionPicker";
+import { useDialog } from "@/components/ui/DialogProvider";
 
 type ChatRow = Chat & { messageCount: number; pendingProposals: number };
 type Att = { id: string; name: string; size: number };
@@ -27,6 +28,7 @@ const applyServer = (server: ChatMessage[]) => (prev: ChatMessage[]) => {
 };
 
 export function MannyPanel({ project }: { project: Project }) {
+  const { confirm } = useDialog();
   const pid = project.id;
   const router = useRouter();
   const path = usePathname();
@@ -192,7 +194,7 @@ export function MannyPanel({ project }: { project: Project }) {
     setChatId(c.id); setQueue([]); setShowHistory(false);
   }
   async function deleteChat(id: string) {
-    if (!confirm("이 대화를 삭제할까요?")) return;
+    if (!(await confirm({ message: "이 대화를 삭제할까요?", confirmLabel: "삭제", danger: true }))) return;
     await api(`/api/projects/${pid}/chat/${id}`, { method: "DELETE" });
     const list = await loadChats();
     setQueue((q) => q.filter((x) => x.chatId !== id));

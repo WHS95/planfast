@@ -5,8 +5,10 @@ import { Plus, Trash2, Copy, Trash } from "lucide-react";
 import { Dialog } from "@/components/ui/Dialog";
 import { api } from "@/lib/api";
 import type { Project, ProjectSettings } from "@/lib/types";
+import { useDialog } from "@/components/ui/DialogProvider";
 
 export function ProjectSettingsDialog({ project, onClose }: { project: Project; current?: string; onClose: () => void }) {
+  const { confirm } = useDialog();
   const router = useRouter();
   const [title, setTitle] = useState(project.title);
   const [description, setDescription] = useState(project.description);
@@ -24,7 +26,7 @@ export function ProjectSettingsDialog({ project, onClose }: { project: Project; 
   }
 
   async function act(action: "duplicate" | "trash") {
-    if (action === "trash" && !confirm("이 프로젝트를 휴지통으로 이동할까요?")) return;
+    if (action === "trash" && !(await confirm({ message: "이 프로젝트를 휴지통으로 이동할까요?", confirmLabel: "휴지통으로 이동" }))) return;
     try {
       await api(`/api/projects/${project.id}`, { method: "PATCH", json: { action } });
       onClose();

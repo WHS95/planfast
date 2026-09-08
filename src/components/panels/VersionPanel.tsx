@@ -6,6 +6,7 @@ import type { Activity, Project, Version } from "@/lib/types";
 import { api } from "@/lib/api";
 import { broadcastChange, useEditor } from "@/components/editor/EditorContext";
 import { Empty, Spinner } from "@/components/ui";
+import { useDialog } from "@/components/ui/DialogProvider";
 
 const ACTION_LABEL: Record<string, string> = {
   "item.create": "항목 생성", "item.update": "항목 수정", "item.delete": "항목 삭제",
@@ -128,6 +129,7 @@ export function ActivityList({ acts }: { acts: Activity[] }) {
 }
 
 function VersionDetail({ project, versionId, acts, onBack, onChanged }: { project: Project; versionId: string; acts: Activity[]; onBack: () => void; onChanged: () => Promise<void> }) {
+  const { confirm } = useDialog();
   const [v, setV] = useState<(Version & { counts: { items: number; pages: number; flows: number } }) | null>(null);
   const [busy, setBusy] = useState<"restore" | "delete" | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -136,12 +138,12 @@ function VersionDetail({ project, versionId, acts, onBack, onChanged }: { projec
   const around = useMemo(() => (v ? acts.filter((a) => a.createdAt <= v.createdAt).slice(0, 10) : []), [acts, v]);
 
   async function restore() {
-    if (!v || !confirm(`"${v.name}" 시점으로 복원할까요?\n현재 상태는 복원 전 자동 저장으로 보관됩니다.`)) return;
+    if (!v || !(await confirm({ message: `"${v.name}" 시점으로 복원할까요?\n현재 상태는 복원 전 자동 저장으로 보관됩니다.`, confirmLabel: "복원" }))) return;
     setBusy("restore"); setErr(null);
     try { await api(base, { method: "POST" }); await onChanged(); onBack(); } catch (e) { setErr((e as Error).message); } finally { setBusy(null); }
   }
   async function remove() {
-    if (!v || !confirm("이 버전을 삭제할까요?")) return;
+    if (!v || !(await confirm({ message: "이 버전을 삭제할까요?", confirmLabel: "삭제", danger: true }))) return;
     setBusy("delete");
     try { await api(base, { method: "DELETE" }); await onChanged(); onBack(); } catch (e) { setErr((e as Error).message); } finally { setBusy(null); }
   }

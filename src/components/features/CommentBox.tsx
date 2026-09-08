@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { broadcastChange } from "@/components/editor/EditorContext";
 import type { Comment } from "@/lib/types";
 import { Spinner } from "@/components/ui";
+import { useDialog } from "@/components/ui/DialogProvider";
 
 function when(iso: string) {
   const d = new Date(iso);
@@ -13,6 +14,7 @@ function when(iso: string) {
 }
 
 export function CommentBox({ projectId, itemId }: { projectId: string; itemId: string }) {
+  const { alert } = useDialog();
   const target = `item:${itemId}`;
   // keyed by target so switching items shows the loading state without a setState-in-effect
   const [loaded, setLoaded] = useState<{ target: string; list: Comment[] }>({ target: "", list: [] });

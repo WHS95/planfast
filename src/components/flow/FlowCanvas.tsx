@@ -19,6 +19,7 @@ import { FlowLegend } from "./FlowLegend";
 import { FlowUiContext, type FlowUi } from "./FlowUiContext";
 import { NodeDrawer, EdgeDrawer, FrameDrawer } from "./FlowDrawer";
 import { buildGraph, buildNodes, edgeFromRF, edgeToRF, toDomain, withoutFrame } from "./rfGraph";
+import { useDialog } from "@/components/ui/DialogProvider";
 
 interface Props { projectId: string; flow: Flow; onSaved: (f: Flow) => void }
 
@@ -29,6 +30,7 @@ export function FlowCanvas(props: Props) {
 const nodeTypes = flowNodeTypes as unknown as NodeTypes;
 
 function Inner({ projectId, flow, onSaved }: Props) {
+  const { alert } = useDialog();
   const rf = useReactFlow();
   const { setSelection, mention } = useEditor();
   const [initial] = useState(() => buildGraph(flow));
