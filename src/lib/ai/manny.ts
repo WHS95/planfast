@@ -263,6 +263,7 @@ export interface PreparedSend {
   user: ChatMessage | null;
   system: string;
   prompt: string;
+  kickoff: "ask" | "files" | null;
 }
 
 /**
@@ -284,7 +285,7 @@ export function prepareManny(input: SendInput): PreparedSend {
   // auto-title the chat on first user message
   const chat = chats.get(input.chatId);
   if (chat && (chat.title === "새 채팅" || !chat.title)) chats.rename(input.chatId, input.content.replace(/\s+/g, " ").trim().slice(0, 40) || "새 채팅");
-  return { user, system, prompt };
+  return { user, system, prompt, kickoff: input.kickoff ?? null };
 }
 
 export interface StreamRunInput {
@@ -294,6 +295,8 @@ export interface StreamRunInput {
   assistantMessageId: string;
   system: string;
   prompt: string;
+  /** 첫 대화(온보딩)는 이후 방향을 잡는 턴이라 일반 대화보다 높은 등급으로 돌린다 */
+  kickoff?: "ask" | "files" | null;
 }
 
 const FLUSH_MS = 250;
@@ -318,7 +321,7 @@ export async function runMannyStream(input: StreamRunInput): Promise<void> {
   };
 
   try {
-    const r = await generateStream({ system: input.system, prompt: input.prompt, onText: (_d, full) => flush(full) });
+    const r = await generateStream({ task: input.kickoff ? "manny.kickoff" : "manny.chat", system: input.system, prompt: input.prompt, onText: (_d, full) => flush(full) });
     const { text, fence } = splitReply(r.data);
     const proposals = fence ? parseProposalFence(fence) : [];
     chats.updateMessage(id, { content: text || "(빈 응답이 돌아왔어요. 다시 시도해 주세요.)", proposals, status: "done" });

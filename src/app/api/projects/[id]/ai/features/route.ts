@@ -116,7 +116,7 @@ export const POST = handler(async (req, { params }: Params<"id">) => {
         `지시: 요구사항 "${parent.title}"(${parent.description || "설명 없음"})을 만족시키기 위한 기능(feature)을 2~4개만 생성하고, 각 기능마다 상세기능(spec)을 2~3개만 작성하세요.`,
         siblings ? `이미 있는 하위 기능(중복 금지):\n${siblings}` : "",
       ].filter(Boolean).join("\n\n");
-      const r = await generateJson({ system: MANNY_SYSTEM, prompt, schema: z.object({ features: z.array(featureSchema) }) });
+      const r = await generateJson({ task: "features.features", system: MANNY_SYSTEM, prompt, schema: z.object({ features: z.array(featureSchema) }) });
       const created = persistFeatures(id, parent.id, r.data.features);
       activity.log(id, "ai.features", parent.title, { mode, parentId, count: created.length, aiProposed: true }, "manny");
       return ok({ mode, parentId, parentType: parent.type, created, usage: r.usage } satisfies FeaturesGenerateResult);
@@ -128,7 +128,7 @@ export const POST = handler(async (req, { params }: Params<"id">) => {
       `지시: ${reqParent ? `요구사항 "${reqParent.title}" 아래 ` : ""}기능 "${parent.title}"(${parent.description || "설명 없음"})을 구현하기 위한 상세기능(spec)을 2~3개만 생성하세요. 정상 흐름 외에 예외·권한·데이터 정책 중 아직 없는 것을 우선 보완하세요.`,
       siblings ? `이미 있는 상세기능(중복 금지):\n${siblings}` : "",
     ].filter(Boolean).join("\n\n");
-    const r = await generateJson({ system: MANNY_SYSTEM, prompt, schema: z.object({ specs: z.array(specSchema) }) });
+    const r = await generateJson({ task: "features.specs", system: MANNY_SYSTEM, prompt, schema: z.object({ specs: z.array(specSchema) }) });
     const created = persistSpecs(id, parent.id, r.data.specs);
     activity.log(id, "ai.features", parent.title, { mode, parentId, count: created.length, aiProposed: true }, "manny");
     return ok({ mode, parentId, parentType: parent.type, created, usage: r.usage } satisfies FeaturesGenerateResult);
@@ -141,7 +141,7 @@ export const POST = handler(async (req, { params }: Params<"id">) => {
       ? "지시: PRD를 바탕으로 기능명세서의 뼈대를 생성하세요. 요구사항 3~6개, 각 요구사항마다 기능 2~4개, 각 기능마다 상세기능 2~3개. 이 개수를 초과하지 마세요."
       : "지시: 현재 기능명세서에 빠져 있는 요구사항을 3~4개만 추가 생성하세요(기존 요구사항과 중복 금지). 각 요구사항마다 기능 2~4개, 각 기능마다 상세기능 2~3개. 이 개수를 초과하지 마세요.",
   ].join("\n\n");
-  const r = await generateJson({ system: MANNY_SYSTEM, prompt, schema: z.object({ requirements: z.array(requirementSchema) }) });
+  const r = await generateJson({ task: "features.requirements", system: MANNY_SYSTEM, prompt, schema: z.object({ requirements: z.array(requirementSchema) }) });
   const created = persistRequirements(id, r.data.requirements);
   activity.log(id, "ai.features", empty ? "기능명세서 생성" : "요구사항 추가 생성", { mode, count: created.length, aiProposed: true }, "manny");
   return ok({ mode: "generate", parentId: null, parentType: null, created, usage: r.usage } satisfies FeaturesGenerateResult);

@@ -29,7 +29,7 @@ export const POST = handler(async (req, { params }: Params<"id">) => {
     "지시: 각 항목에 대해 구체적이고 실무적인 내용을 한국어로 작성하세요. 비어 있는 항목은 채우고, 이미 있는 항목은 더 명확하고 논리적으로 보완하세요. 한 줄 정의는 한 문장, 나머지는 2~5문장 또는 불릿(- )로. 모든 id를 빠짐없이 포함하세요.",
   ].filter(Boolean).join("\n\n");
 
-  const r = await generateJson({ system: MANNY_SYSTEM, prompt, schema });
+  const r = await generateJson({ task: "prd.draft", system: MANNY_SYSTEM, prompt, schema });
   const fields: Record<string, string> = {};
   for (const f of r.data.fields) if (targets.some((t) => t.id === f.id)) fields[f.id] = f.content;
   activity.log(id, "ai.prd", sectionId ? sections[0]?.title ?? "섹션" : "전체 PRD", { count: Object.keys(fields).length }, "manny");

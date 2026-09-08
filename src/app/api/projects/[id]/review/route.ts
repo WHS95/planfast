@@ -69,7 +69,7 @@ async function runBasicPerspectives(p: Project, perspectives: Exclude<ReviewPers
     "# 검토 관점", ...perspectives.map((k) => `- ${k} (${REVIEW_PERSPECTIVE_LABEL[k]}): ${PERSPECTIVE_HINT[k]}`),
     "지시: 선택된 관점별로 PRD와 기능명세서를 검토해 문제(warn)와 개선 제안(suggest)을 찾으세요. 관점당 2~5개, 전체 20개 이내. target은 반드시 위에 있는 섹션키 또는 항목 id를 사용. 유저플로우·와이어프레임은 검토 대상이 아닙니다. 구체적이고 실행 가능하게 한국어로.",
   ].filter(Boolean).join("\n\n");
-  const r = await generateJson({ system: MANNY_SYSTEM, prompt, schema });
+  const r = await generateJson({ task: "review.basic", system: MANNY_SYSTEM, prompt, schema });
   return r.data.items.filter((it) => perspectives.includes(it.perspective as Exclude<ReviewPerspective, "edge_case">));
 }
 
@@ -108,7 +108,7 @@ async function runEdgeCaseAudit(p: Project, list: ReturnType<typeof items.list>)
     itemsToMarkdown(list, { withIds: true }) || "(항목 없음)",
     "지시: 위 방법론([0]~[5])을 내부적으로 수행한 뒤, 최종 이슈만 출력하세요. 최대 25개, 심각도 순(S1 먼저). target은 반드시 위에 있는 섹션키 또는 항목 id 중 하나. 문서에 없는 사실을 지어내지 마세요 — 빈칸은 빈칸인 채로 이슈화하세요. 한국어로.",
   ].filter(Boolean).join("\n\n");
-  const r = await generateJson({ system: EDGE_CASE_SYSTEM, prompt, schema, model: "claude-fable-5-1" });
+  const r = await generateJson({ task: "review.edge_case", system: EDGE_CASE_SYSTEM, prompt, schema });
   return r.data.issues.map((it) => ({ perspective: "edge_case" as const, severity: it.severity, target: it.target, title: it.title, body: it.question }));
 }
 

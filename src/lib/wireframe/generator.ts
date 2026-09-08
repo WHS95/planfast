@@ -96,7 +96,7 @@ function buildPrompt(wf: Wireframe, page: WireframePage, flow: Flow | undefined,
 async function generateOne(wf: Wireframe, page: WireframePage, ctx: { flow?: Flow; items: Item[]; prdMd: string }, extra?: string) {
   wireframes.updatePage(page.id, { status: "generating", error: null });
   try {
-    const r = await generateText({ system: SYSTEM, prompt: buildPrompt(wf, page, ctx.flow, ctx.items, ctx.prdMd, extra), maxTokens: 12000 });
+    const r = await generateText({ task: "wireframe.page", system: SYSTEM, prompt: buildPrompt(wf, page, ctx.flow, ctx.items, ctx.prdMd, extra), maxTokens: 12000 });
     const html = stripFences(r.data);
     if (!/<html/i.test(html) || html.length < 200) throw new Error("AI가 유효한 HTML을 반환하지 않았습니다");
     wireframes.updatePage(page.id, { html, status: "done", error: null });

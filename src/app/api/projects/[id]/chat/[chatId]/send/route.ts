@@ -25,7 +25,7 @@ export const POST = handler(async (req, { params }: Params<"id" | "chatId">) => 
     mentions: body.mentions ?? [], attachmentIds: body.attachmentIds ?? [], kickoff: body.kickoff ?? null,
   });
   const assistant = chats.addMessage({ chatId, role: "assistant", content: "", mentions: [], attachments: [], proposals: [], status: "streaming" });
-  startChatJob({ projectId: id, chatId, assistantMessageId: assistant.id, system: prepared.system, prompt: prepared.prompt });
+  startChatJob({ projectId: id, chatId, assistantMessageId: assistant.id, system: prepared.system, prompt: prepared.prompt, kickoff: prepared.kickoff });
 
   return ok({ user: prepared.user, assistant }, { status: 201 });
 });

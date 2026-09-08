@@ -25,7 +25,7 @@ export const POST = handler(async (_req, { params }: Params<"meetingId">) => {
     existing.length ? `# 이미 추출된 결정 (중복 금지)\n${existing.map((d) => `- ${d.text}`).join("\n")}` : "",
     "지시: 회의록에서 제품 기획에 영향을 주는 결정 사항을 추출하세요. 확정된 것은 confirmed, 논의만 되고 결론이 없는 것은 undecided, 하지 않기로 한 것은 rejected. 각 결정은 기획서에 반영 가능한 구체적 문장으로. 3~12개.",
   ].filter(Boolean).join("\n\n");
-  const r = await generateJson({ system: MANNY_SYSTEM, prompt, schema });
+  const r = await generateJson({ task: "meeting.extract", system: MANNY_SYSTEM, prompt, schema });
   const created = r.data.decisions.map((d) => meetings.addDecision({ meetingId, projectId: m.projectId, text: d.text, rationale: d.rationale, status: d.status }));
   return ok({ decisions: meetings.decisions(meetingId), created: created.length });
 });

@@ -46,7 +46,7 @@ export const POST = handler(async (req, { params }: Params<"id">) => {
     `지시: 위 상세기능의 "개발 준비 슬롯" 9개를 개발자가 바로 구현할 수 있을 만큼 구체적으로 한국어로 작성하세요. 비어 있는 슬롯은 채우고, 이미 있는 슬롯은 더 명확하게 보완하세요. 각 슬롯은 1~4문장 또는 불릿(- ) 목록. 해당 사항이 없으면 "해당 없음"이라고 적으세요.\n슬롯 설명:\n${SPEC_SLOTS.map((s) => `- ${s}(${SPEC_SLOT_LABEL[s]}): ${SLOT_HINT[s]}`).join("\n")}`,
   ].filter(Boolean).join("\n\n");
 
-  const r = await generateJson({ system: MANNY_SYSTEM, prompt, schema: z.object({ slots: slotsSchema }) });
+  const r = await generateJson({ task: "features.slots", system: MANNY_SYSTEM, prompt, schema: z.object({ slots: slotsSchema }) });
   activity.log(id, "ai.slots", spec.title, { itemId }, "manny");
   return ok({ slots: r.data.slots, usage: r.usage });
 });

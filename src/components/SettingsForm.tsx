@@ -6,6 +6,8 @@ import { api } from "@/lib/api";
 import type { AppSettings, AiProvider } from "@/lib/types";
 import { Spinner } from "@/components/ui";
 import type { ClaudeCliStatus } from "@/app/api/settings/claude-status/route";
+import { TierModelSettings } from "@/components/settings/TierModelSettings";
+import type { TierModels } from "@/lib/ai/policy";
 
 const INSTALL_CMD: Record<"mac" | "windows", string> = {
   mac: "curl -fsSL https://claude.ai/install.sh | bash",
@@ -42,15 +44,12 @@ export function SettingsForm({ initial }: { initial: AppSettings }) {
         {s.aiProvider === "anthropic-api" && (
           <label className="block text-sm"><span className="text-muted">API 키</span><input className="input mt-1 font-mono" type="password" placeholder="sk-ant-…" value={s.anthropicApiKey} onChange={(e) => setS({ ...s, anthropicApiKey: e.target.value })} onBlur={() => save({ anthropicApiKey: s.anthropicApiKey })} /></label>
         )}
-        <label className="block text-sm"><span className="text-muted">모델</span>
-          <select className="input mt-1" value={s.model} onChange={(e) => save({ model: e.target.value })}>
-            <option value="sonnet">Sonnet (기본 · 빠름)</option><option value="opus">Opus (고급 · 느림)</option><option value="haiku">Haiku (초경량)</option>
-          </select></label>
         <div className="flex items-center gap-3">
           <button className="btn" onClick={test} disabled={busy}>{busy ? <Spinner /> : null} 실제로 대화해서 확인</button>
           {check && <span className={`text-sm ${check.ok ? "text-ok" : "text-danger"}`}>{check.ok ? "정상 연결" : `실패: ${check.message}`}</span>}
         </div>
       </section>
+      <TierModelSettings initial={s.tierModels} onSave={(tiers: TierModels) => save({ tierModels: tiers })} />
     </div>
   );
 }

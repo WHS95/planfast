@@ -16,11 +16,18 @@ import Anthropic from "@anthropic-ai/sdk";
 import { toJSONSchema, type z } from "zod";
 import { appSettings } from "@/lib/repo";
 import type { AiProvider } from "@/lib/types";
+import { normalizeTierModels, resolveTask, effortForProvider, type AiTask, type AiEffort, type AiTier } from "@/lib/ai/policy";
 
 export interface AiOptions {
   system: string;
   prompt: string;
+  /**
+   * 작업 이름. 등급 → 모델·노력은 설정(policy.ts)에서 결정된다. 새 호출은 model 대신 이것을 넘길 것.
+   * model/effort 를 같이 주면 그 호출에 한해 정책을 덮어쓴다("이번만 낮춰서" 같은 예외용).
+   */
+  task?: AiTask;
   model?: string;
+  effort?: AiEffort;
   provider?: AiProvider;
   maxTokens?: number;
   signal?: AbortSignal;
@@ -36,11 +43,27 @@ export type AiStreamOptions = AiOptions & { onText: (delta: string, full: string
 const DEBUG = process.env.NODE_ENV !== "production" || !!process.env.PLANFAST_AI_DEBUG;
 function dbg(...args: unknown[]) { if (DEBUG) console.debug("[ai]", ...args); }
 
-function resolveModel(model: string | undefined, provider: AiProvider): string {
-  const m = model ?? appSettings.get().model ?? "sonnet";
+function toProviderModel(m: string, provider: AiProvider): string {
   if (provider === "claude-cli") return m; // CLI accepts aliases (sonnet/opus/haiku) or full ids
   const alias: Record<string, string> = { sonnet: "claude-sonnet-5", opus: "claude-opus-5", haiku: "claude-haiku-4-5" };
   return alias[m] ?? m;
+}
+
+interface Run { provider: AiProvider; model: string; effort: AiEffort; tier?: AiTier }
+
+/**
+ * 호출 한 번에 쓸 {프로바이더, 모델, 노력} 결정.
+ *   task 가 있으면 → 정책 표(등급별 설정)에서. model/effort 가 같이 오면 그것이 우선.
+ *   task 가 없으면 → 옛 방식(전역 model 설정). 정책에 등록되지 않은 임시 호출용.
+ */
+function resolveRun(o: AiOptions): Run {
+  const s = appSettings.get();
+  const provider = o.provider ?? s.aiProvider;
+  if (o.task) {
+    const r = resolveTask(o.task, normalizeTierModels(s.tierModels), { model: o.model, effort: o.effort });
+    return { provider, model: toProviderModel(r.model, provider), effort: r.effort, tier: r.tier };
+  }
+  return { provider, model: toProviderModel(o.model ?? s.model ?? "sonnet", provider), effort: o.effort ?? "medium" };
 }
 
 // ---------------------------------------------------------------- CLI provider
@@ -93,11 +116,13 @@ function runCli(args: string[], signal?: AbortSignal): Promise<CliJson> {
   });
 }
 
-function cliBaseArgs(system: string, model: string, format: "json" | "stream" = "json"): string[] {
+function cliBaseArgs(system: string, run: Run, format: "json" | "stream" = "json"): string[] {
+  const { cliEffort } = effortForProvider(run.effort, "claude-cli");
   return [
     "-p",
     ...(format === "stream" ? ["--output-format", "stream-json", "--verbose", "--include-partial-messages"] : ["--output-format", "json"]),
-    "--model", model,
+    "--model", run.model,
+    ...(cliEffort ? ["--effort", cliEffort] : []),
     "--tools", "",
     "--no-session-persistence",
     "--disable-slash-commands",
@@ -107,12 +132,12 @@ function cliBaseArgs(system: string, model: string, format: "json" | "stream" = 
   ];
 }
 
-async function cliText(o: AiOptions, model: string): Promise<AiResult<string>> {
-  const r = await runCli([...cliBaseArgs(o.system, model), o.prompt], o.signal);
+async function cliText(o: AiOptions, run: Run): Promise<AiResult<string>> {
+  const r = await runCli([...cliBaseArgs(o.system, run), o.prompt], o.signal);
   return { data: r.result ?? "", raw: r.result ?? "", usage: cliUsage(r) };
 }
-async function cliJson<T>(o: AiOptions, model: string, jsonSchema: Record<string, unknown>): Promise<AiResult<T>> {
-  const r = await runCli([...cliBaseArgs(o.system, model), "--json-schema", JSON.stringify(jsonSchema), o.prompt], o.signal);
+async function cliJson<T>(o: AiOptions, run: Run, jsonSchema: Record<string, unknown>): Promise<AiResult<T>> {
+  const r = await runCli([...cliBaseArgs(o.system, run), "--json-schema", JSON.stringify(jsonSchema), o.prompt], o.signal);
   let data = r.structured_output as T | undefined;
   if (data === undefined && r.result) data = extractJson<T>(r.result);
   if (data === undefined) throw new Error("AI returned no structured output");
@@ -161,8 +186,8 @@ function runCliStream(args: string[], onText: (delta: string, full: string) => v
   });
 }
 
-async function cliStream(o: AiStreamOptions, model: string): Promise<AiResult<string>> {
-  const r = await runCliStream([...cliBaseArgs(o.system, model, "stream"), o.prompt], o.onText, o.signal);
+async function cliStream(o: AiStreamOptions, run: Run): Promise<AiResult<string>> {
+  const r = await runCliStream([...cliBaseArgs(o.system, run, "stream"), o.prompt], o.onText, o.signal);
   const text = r.result ?? r.streamed;
   return { data: text, raw: text, usage: cliUsage(r) };
 }
@@ -178,20 +203,24 @@ function apiClient(): Anthropic {
   const key = process.env.ANTHROPIC_API_KEY || appSettings.get().anthropicApiKey || undefined;
   return new Anthropic({ apiKey: key });
 }
-async function apiText(o: AiOptions, model: string): Promise<AiResult<string>> {
+/** effort → thinking. low 는 thinking 없이, 그 외는 adaptive. */
+function apiThinking(run: Run): { thinking?: { type: "adaptive" } } {
+  return effortForProvider(run.effort, "anthropic-api").thinking ? { thinking: { type: "adaptive" } } : {};
+}
+async function apiText(o: AiOptions, run: Run): Promise<AiResult<string>> {
   const client = apiClient();
   const stream = client.messages.stream(
-    { model, max_tokens: o.maxTokens ?? 16000, system: o.system, messages: [{ role: "user", content: o.prompt }] },
+    { model: run.model, max_tokens: o.maxTokens ?? 16000, system: o.system, messages: [{ role: "user", content: o.prompt }], ...apiThinking(run) },
     { signal: o.signal },
   );
   const msg = await stream.finalMessage();
   const text = msg.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("");
   return { data: text, raw: text, usage: { input: msg.usage.input_tokens, output: msg.usage.output_tokens } };
 }
-async function apiStream(o: AiStreamOptions, model: string): Promise<AiResult<string>> {
+async function apiStream(o: AiStreamOptions, run: Run): Promise<AiResult<string>> {
   const client = apiClient();
   const stream = client.messages.stream(
-    { model, max_tokens: o.maxTokens ?? 16000, system: o.system, messages: [{ role: "user", content: o.prompt }] },
+    { model: run.model, max_tokens: o.maxTokens ?? 16000, system: o.system, messages: [{ role: "user", content: o.prompt }], ...apiThinking(run) },
     { signal: o.signal },
   );
   let full = "";
@@ -204,11 +233,12 @@ async function apiStream(o: AiStreamOptions, model: string): Promise<AiResult<st
   return { data: text, raw: text, usage: { input: msg.usage.input_tokens, output: msg.usage.output_tokens } };
 }
 
-async function apiJson<T>(o: AiOptions, model: string, jsonSchema: Record<string, unknown>): Promise<AiResult<T>> {
+async function apiJson<T>(o: AiOptions, run: Run, jsonSchema: Record<string, unknown>): Promise<AiResult<T>> {
   const client = apiClient();
   const stream = client.messages.stream(
     {
-      model,
+      model: run.model,
+      ...apiThinking(run),
       max_tokens: o.maxTokens ?? 16000,
       system: o.system,
       messages: [{ role: "user", content: o.prompt }],
@@ -237,11 +267,27 @@ function stripToolArtifacts<T>(v: T): T {
   return v;
 }
 
+// ---------------------------------------------------------------- run log
+/**
+ * 최근 AI 실행 기록. 설정 화면에서 "이 등급이 실제로 얼마나 걸리는지"를 실측으로 보여주고,
+ * 등급을 올리고 내리는 판단을 감이 아니라 데이터로 하게 한다. 프로세스 메모리에만 있다(재시작 시 초기화).
+ */
+export interface AiRunRecord { at: string; task?: AiTask; tier?: AiTier; model: string; effort: AiEffort; ms: number; input: number; output: number }
+const RUN_LOG_MAX = 200;
+const runLog: AiRunRecord[] = [];
+function logRun(o: AiOptions, run: Run, t0: number, r: AiResult<unknown>) {
+  runLog.push({ at: new Date().toISOString(), task: o.task, tier: run.tier, model: run.model, effort: run.effort, ms: Date.now() - t0, input: r.usage?.input ?? 0, output: r.usage?.output ?? 0 });
+  if (runLog.length > RUN_LOG_MAX) runLog.splice(0, runLog.length - RUN_LOG_MAX);
+  dbg("run", { task: o.task, tier: run.tier, model: run.model, effort: run.effort, ms: Date.now() - t0 });
+}
+export function recentRuns(): AiRunRecord[] { return [...runLog].reverse(); }
+
 // ---------------------------------------------------------------- public API
 export async function generateText(o: AiOptions): Promise<AiResult<string>> {
-  const provider = o.provider ?? appSettings.get().aiProvider;
-  const model = resolveModel(o.model, provider);
-  const r = provider === "anthropic-api" ? await apiText(o, model) : await cliText(o, model);
+  const run = resolveRun(o);
+  const t0 = Date.now();
+  const r = run.provider === "anthropic-api" ? await apiText(o, run) : await cliText(o, run);
+  logRun(o, run, t0, r);
   return { ...r, data: stripToolArtifacts(r.data) };
 }
 
@@ -251,9 +297,10 @@ export async function generateText(o: AiOptions): Promise<AiResult<string>> {
  * as soon as the HTTP response flushes.
  */
 export async function generateStream(o: AiStreamOptions): Promise<AiResult<string>> {
-  const provider = o.provider ?? appSettings.get().aiProvider;
-  const model = resolveModel(o.model, provider);
-  const r = provider === "anthropic-api" ? await apiStream(o, model) : await cliStream(o, model);
+  const run = resolveRun(o);
+  const t0 = Date.now();
+  const r = run.provider === "anthropic-api" ? await apiStream(o, run) : await cliStream(o, run);
+  logRun(o, run, t0, r);
   return { ...r, data: stripToolArtifacts(r.data) };
 }
 
@@ -276,9 +323,10 @@ function jsonOnlyInstruction(jsonSchema: Record<string, unknown>): string {
  * provider's native structured-output mode (CLI `--json-schema`, which costs 2 turns).
  */
 export async function generateJson<S extends z.ZodTypeAny>(o: AiOptions & { schema: S }): Promise<AiResult<z.infer<S>>> {
-  const provider = o.provider ?? appSettings.get().aiProvider;
-  const model = resolveModel(o.model, provider);
+  const run = resolveRun(o);
+  const { provider, model } = run;
   const jsonSchema = toJsonSchema(o.schema);
+  const t0 = Date.now();
 
   let reason = "";
   try {
@@ -287,13 +335,14 @@ export async function generateJson<S extends z.ZodTypeAny>(o: AiOptions & { sche
       system: `${o.system}\n\n${JSON_SYSTEM_SUFFIX}`,
       prompt: `${o.prompt}\n\n${jsonOnlyInstruction(jsonSchema)}`,
     };
-    const res = provider === "anthropic-api" ? await apiText(single, model) : await cliText(single, model);
+    const res = provider === "anthropic-api" ? await apiText(single, run) : await cliText(single, run);
     const extracted = extractJson<unknown>(res.raw);
     if (extracted === undefined) reason = "no JSON found in reply";
     else {
       const parsed = o.schema.safeParse(stripToolArtifacts(extracted));
       if (parsed.success) {
         dbg("generateJson: single-turn ok", { provider, model, chars: res.raw.length });
+        logRun(o, run, t0, res);
         return { ...res, data: parsed.data };
       }
       reason = `schema validation: ${parsed.error.message.slice(0, 200)}`;
@@ -304,9 +353,10 @@ export async function generateJson<S extends z.ZodTypeAny>(o: AiOptions & { sche
   }
 
   dbg("generateJson: falling back to native structured output —", reason);
-  const res = provider === "anthropic-api" ? await apiJson<unknown>(o, model, jsonSchema) : await cliJson<unknown>(o, model, jsonSchema);
+  const res = provider === "anthropic-api" ? await apiJson<unknown>(o, run, jsonSchema) : await cliJson<unknown>(o, run, jsonSchema);
   const parsed = o.schema.safeParse(stripToolArtifacts(res.data));
   if (!parsed.success) throw new Error(`AI output failed schema validation: ${parsed.error.message.slice(0, 500)}`);
+  logRun(o, run, t0, res);
   return { ...res, data: parsed.data };
 }
 

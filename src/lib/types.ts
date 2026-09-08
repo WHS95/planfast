@@ -406,7 +406,10 @@ export interface ApiKey {
 export type AiProvider = "claude-cli" | "anthropic-api";
 export interface AppSettings {
   aiProvider: AiProvider;
+  /** @deprecated 등급별 배치(tierModels)로 대체. task 없는 옛 호출의 기본값으로만 남는다. */
   model: string; // "sonnet" | "opus" | full id
+  /** 작업 등급(A~D) → {모델, 노력}. 형태는 src/lib/ai/policy.ts 의 TierModels. 비어 있으면 최적 배치 기본값. */
+  tierModels?: Record<string, { model: string; effort: string }>;
   anthropicApiKey: string;
   theme: "light" | "dark" | "system";
   displayName: string;

@@ -42,7 +42,7 @@ export const POST = handler(async (req, { params }: Params<"id">) => {
 
   if (mode === "generate") {
     const prompt = [text, existingMd, seed, "지시: 이 제품의 정보구조도(IA, 페이지 트리)를 제안하세요. 최상위에는 주요 메뉴/영역 페이지, 그 아래에 세부 페이지를 배치합니다. 기존 페이지가 있으면 빠진 부분만 추가 제안하세요.", rules].filter(Boolean).join("\n\n");
-    const r = await generateJson({ system: MANNY_SYSTEM, prompt, schema: treeSchema });
+    const r = await generateJson({ task: "ia.generate", system: MANNY_SYSTEM, prompt, schema: treeSchema });
     activity.log(id, "ai.ia", "정보구조도 생성 제안", { count: r.data.pages.length }, "manny");
     return ok({ mode, pages: r.data.pages, parentId: null, usage: r.usage });
   }
@@ -51,7 +51,7 @@ export const POST = handler(async (req, { params }: Params<"id">) => {
     if (!target || target.projectId !== id) return bad("pageId required");
     const sibs = existing.filter((x) => x.parentId === target.id).map((x) => x.name);
     const prompt = [text, existingMd, seed, `지시: "${pathOf(target, existing)}" 페이지(${target.description || "설명 없음"})의 하위 페이지를 제안하세요. 이미 있는 하위 페이지: ${sibs.length ? sibs.join(", ") : "(없음)"}. 3~7개, 필요하면 2단계까지.`, rules].filter(Boolean).join("\n\n");
-    const r = await generateJson({ system: MANNY_SYSTEM, prompt, schema: childrenSchema });
+    const r = await generateJson({ task: "ia.children", system: MANNY_SYSTEM, prompt, schema: childrenSchema });
     activity.log(id, "ai.ia", `하위 페이지 제안: ${target.name}`, { count: r.data.pages.length }, "manny");
     return ok({ mode, pages: r.data.pages, parentId: target.id, usage: r.usage });
   }
@@ -62,7 +62,7 @@ export const POST = handler(async (req, { params }: Params<"id">) => {
       "보강할 페이지 목록 (id / 경로 / 현재 설명):", ...targets.map((x) => `- ${x.id} / ${pathOf(x, existing)} / ${x.description || "(비어 있음)"}`),
       "지시: 각 페이지의 이름을 더 명확하게 다듬고(대부분 그대로 두어도 됨), 설명을 1~2문장으로 구체적으로 작성하세요. 페이지에 포함될 핵심 UI 요소와 연결된 기능을 언급하세요. 모든 id를 빠짐없이 포함.",
     ].filter(Boolean).join("\n\n");
-    const r = await generateJson({ system: MANNY_SYSTEM, prompt, schema: enrichSchema });
+    const r = await generateJson({ task: "ia.enrich", system: MANNY_SYSTEM, prompt, schema: enrichSchema });
     const valid = r.data.updates.filter((u) => targets.some((t) => t.id === u.id));
     activity.log(id, "ai.ia", "페이지 설명 보강 제안", { count: valid.length }, "manny");
     return ok({ mode, updates: valid, usage: r.usage });
@@ -86,7 +86,7 @@ export const POST = handler(async (req, { params }: Params<"id">) => {
       "한 상세기능이 여러 화면에 걸칠 수 있고(예: 목록과 상세 모두), 어느 화면에도 속하지 않으면(순수 배치·서버 작업) 연결하지 않아도 됩니다.",
       "확실하지 않으면 억지로 연결하지 마세요. 반드시 위 목록에 있는 id만 사용하세요.",
     ].filter(Boolean).join("\n\n");
-    const r = await generateJson({ system: MANNY_SYSTEM, prompt, schema: linkSchema });
+    const r = await generateJson({ task: "ia.link", system: MANNY_SYSTEM, prompt, schema: linkSchema });
     const pageIds = new Set(existing.map((x) => x.id));
     const specIds = new Set(specs.map((x) => x.id));
     // 모델이 지어낸 id 는 버린다.

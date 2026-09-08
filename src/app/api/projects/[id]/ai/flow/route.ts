@@ -73,7 +73,7 @@ export const POST = handler(async (req, { params }: Params<"id">) => {
     guide,
   ].filter(Boolean).join("\n\n");
 
-  const r = await generateJson({ system: MANNY_SYSTEM, prompt, schema });
+  const r = await generateJson({ task: "flow.generate", system: MANNY_SYSTEM, prompt, schema });
   const { nodes, edges, frames } = normalize(r.data.nodes, r.data.edges, r.data.frames ?? []);
   const name = mode === "revise" ? `${(base!.name).replace(/\s*\(수정본( \d+)?\)$/, "")} (수정본)` : (body.name?.trim() || r.data.name || "새 유저플로우");
   const f = flows.create({ projectId: id, name, request, nodes, edges, frames });

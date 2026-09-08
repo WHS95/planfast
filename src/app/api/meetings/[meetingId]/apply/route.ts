@@ -27,7 +27,7 @@ export const POST = handler(async (_req, { params }: Params<"meetingId">) => {
     ...targets.map((d, i) => `${i + 1}. ${d.text}${d.rationale ? `\n   근거: ${d.rationale}` : ""}`),
     "지시: 위 결정 사항을 기획서에 반영하기 위한 변경 제안을 만드세요. PRD 수정은 prd.set(sectionKey+label 정확히), 항목 추가는 item.create(요구사항 parentId=null, 기능은 요구사항 id, 상세기능은 기능 id; 같은 응답 안의 새 항목은 tempId로 참조), 기존 항목 수정은 item.update(문맥의 [id]), 삭제는 item.delete. 각 결정이 최소 하나의 제안으로 이어지도록. summary에는 어떤 결정을 어떻게 반영했는지 요약.",
   ].join("\n\n");
-  const r = await generateJson({ system: MANNY_SYSTEM, prompt, schema });
+  const r = await generateJson({ task: "meeting.apply", system: MANNY_SYSTEM, prompt, schema });
   const proposals: Proposal[] = r.data.proposals.map((p) => ({ id: rid(), summary: p.summary, op: normalizeOp(p.op), status: "pending" }));
   const chat = chats.create(m.projectId, `회의 결정 반영 (${m.heldAt.slice(0, 10)})`);
   chats.addMessage({ chatId: chat.id, role: "user", content: `회의록 "${m.title}"의 확정 결정 ${targets.length}건을 기획서에 반영해줘.\n${targets.map((d) => `- ${d.text}`).join("\n")}`, mentions: [], attachments: [], proposals: [] });
