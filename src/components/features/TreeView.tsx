@@ -2,7 +2,6 @@
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import Link from "next/link";
-import dagre from "@dagrejs/dagre";
 import { AnimatePresence, motion } from "motion/react";
 import { Controls, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, useReactFlow, useViewport, type Edge, type Node, type NodeProps } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -14,6 +13,7 @@ import { ItemDrawer } from "./ItemDetail";
 import { Highlight } from "./Highlight";
 import { NewBadge, NumTag } from "./controls";
 import { flattenVisible, matchesQuery, tint } from "./utils";
+import { stableLayout } from "@/lib/flow/autolayout";
 import { useDialog } from "@/components/ui/DialogProvider";
 
 const W = 240;
@@ -123,19 +123,33 @@ function ItemNodeView({ data, selected }: NodeProps<ItemNode>) {
 
 const nodeTypes = { item: ItemNodeView, prd: PrdNodeView };
 
-function layout(nodes: AnyNode[], edges: Edge[]): AnyNode[] {
-  const g = new dagre.graphlib.Graph();
-  g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({ rankdir: "LR", nodesep: 16, ranksep: 84 });
+/**
+ * 프로젝트별 직전 배치 좌표(힌트 캐시).
+ *
+ * 트리는 항목 데이터에서 매번 새로 계산되므로 저장된 좌표가 없다. 그런데 그대로 두면 항목 하나를
+ * 펼치거나 추가할 때마다 화면 전체가 재배치돼 사용자가 흐름을 다시 읽어야 한다.
+ * 그래서 직전 결과를 기준으로 삼아 바뀐 가지만 움직이게 한다.
+ *
+ * ref 나 state 대신 모듈 스코프인 이유: 이 값을 ref 로 두면 렌더 중 읽기(react-hooks/refs),
+ * state 로 두면 effect 안 setState(react-hooks/set-state-in-effect) 에 걸린다.
+ * 없어도 배치는 정상 동작하는 **힌트**일 뿐이라 캐시로 두는 편이 의미상으로도 맞다.
+ * (읽기는 렌더에서, 쓰기는 effect 에서만 한다)
+ */
+const layoutMemory = new Map<string, Map<string, { x: number; y: number }>>();
+
+/**
+ * 트리 배치. 요구사항 하나에 상세기능이 20개씩 달리면 일반 트리 배치는 그걸 한 줄로 늘려 화면을 통째로 먹는다.
+ * stableLayout 은 주 흐름을 직선으로 두고, 형제가 많으면 격자로 접는다.
+ * `previous` 를 넘기면 항목을 하나 추가해도 다른 가지가 움직이지 않는다.
+ */
+function layout(nodes: AnyNode[], edges: Edge[], previous?: Map<string, { x: number; y: number }>): AnyNode[] {
   const dim = (n: AnyNode) => (n.type === "prd" ? { width: PRD_W, height: PRD_H } : { width: W, height: NODE_H[(n as ItemNode).data.item.type] });
-  for (const n of nodes) g.setNode(n.id, dim(n));
-  for (const e of edges) g.setEdge(e.source, e.target);
-  dagre.layout(g);
-  return nodes.map((n) => {
-    const p = g.node(n.id);
-    const d = dim(n);
-    return { ...n, position: { x: p.x - d.width / 2, y: p.y - d.height / 2 } } as AnyNode;
-  });
+  const r = stableLayout(
+    nodes.map((n) => ({ id: n.id, ...dim(n) })),
+    edges.map((e) => ({ source: e.source, target: e.target })),
+    { direction: "LR", nodesep: 16, ranksep: 84, fanoutWrap: 6, previous },
+  );
+  return nodes.map((n) => ({ ...n, position: r.positions.get(n.id) ?? n.position ?? { x: 0, y: 0 } }) as AnyNode);
 }
 
 function useDark() {
@@ -186,8 +200,11 @@ function Canvas() {
           style: { stroke, strokeWidth: 1.5, opacity: v.item.parentId ? 0.55 : 0.35 },
         };
       });
-    return { nodes: layout(ns, es), edges: es };
+    return { nodes: layout(ns, es, layoutMemory.get(projectId)), edges: es };
   }, [visible, store, collapsed, selectedId, query, currentMatchId, numbers, colors, projectId, aiBusy, aiBusyParentId]);
+
+  // 이번 배치를 다음 배치의 기준으로 남긴다 → 항목을 펼치거나 추가해도 다른 가지가 제자리에 있다.
+  useEffect(() => { layoutMemory.set(projectId, new Map(nodes.map((n) => [n.id, n.position]))); }, [nodes, projectId]);
 
   // fit when the visible set changes; centre on current search match
   const key = visible.map((v) => v.item.id).join(",");

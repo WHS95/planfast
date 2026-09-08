@@ -152,7 +152,7 @@ export interface Project {
  * 매번 같이 늘어나고, 한 곳이라도 빠지면 조용히 값이 사라진다(실제로 겪은 버그).
  */
 export interface PageMeta {
-  /** 캔버스에 저장된 좌표. 없으면 자동 배치(dagre). */
+  /** 캔버스에 저장된 좌표. 없으면 자동 배치(stableLayout). */
   x?: number;
   y?: number;
   /** 표 컬럼 — 전부 자유 입력이며 다른 문서와 자동 연동되지 않는다. */

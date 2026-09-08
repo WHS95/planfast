@@ -9,7 +9,8 @@
  * 변환은 캔버스 컴포넌트에서만 수행한다 → PNG 내보내기·공유 뷰 등 기존 소비자가 그대로 동작.
  */
 import type { FlowEdge, FlowFrame, FlowNode } from "@/lib/types";
-import { FLOW_NODE_SIZE, layoutGraph } from "./layout";
+import { FLOW_NODE_SIZE } from "./layout";
+import { stableLayout } from "./autolayout";
 
 export interface FrameBox extends FlowFrame {
   x: number;
@@ -76,7 +77,7 @@ export const nodeSize = (n: { type: FlowNode["type"] }) => FLOW_NODE_SIZE[n.type
 
 /**
  * 프레임 단위 자동 배치.
- * 프레임마다 내부 노드를 dagre LR 로 정렬하고, 프레임을 같은 너비의 가로 레인으로 위→아래 적층한다.
+ * 프레임마다 내부 노드를 stableLayout(LR)로 정렬하고, 프레임을 같은 너비의 가로 레인으로 위→아래 적층한다.
  * 프레임이 없는 노드는 맨 아래에 (암묵 "기타" 레인 자리) 배치한다.
  * 반환 position 은 모두 절대 좌표.
  */
@@ -101,7 +102,9 @@ export function layoutFramedFlow(
   const sizes = groups.map((g) => {
     const ids = new Set(g.nodes.map((n) => n.id));
     const inner = edges.filter((e) => ids.has(e.source) && ids.has(e.target));
-    const pos = layoutGraph(g.nodes.map((n) => ({ id: n.id, ...nodeSize(n) })), inner, { direction: "LR", nodesep: 36, ranksep: 90 });
+    // 프레임 안에서만 배치한다(레인 밖 간선은 제외) — 그래야 다른 레인이 이 레인을 끌어당기지 않는다.
+    const pos = stableLayout(g.nodes.map((n) => ({ id: n.id, ...nodeSize(n) })), inner,
+      { direction: "LR", nodesep: 36, ranksep: 90, fanoutWrap: 6 }).positions;
     let w = 0, h = 0, minX = Infinity, minY = Infinity;
     for (const n of g.nodes) {
       const p = pos.get(n.id) ?? { x: 0, y: 0 };

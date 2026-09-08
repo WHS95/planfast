@@ -4,7 +4,8 @@ import { projects, flows, activity } from "@/lib/repo";
 import { flowReadiness } from "@/lib/flow/readiness";
 import { generateJson } from "@/lib/ai";
 import { MANNY_SYSTEM, projectContext } from "@/lib/ai/context";
-import { layoutFlow } from "@/lib/flow/layout";
+import { FLOW_NODE_SIZE } from "@/lib/flow/layout";
+import { stableLayout } from "@/lib/flow/autolayout";
 import { FRAME_COLOR_CYCLE, layoutFramedFlow } from "@/lib/flow/frames";
 import { FLOW_NODE_TYPES, rid, type FlowEdge, type FlowFrame, type FlowNode } from "@/lib/types";
 
@@ -82,7 +83,7 @@ export const POST = handler(async (req, { params }: Params<"id">) => {
   return ok(f, { status: 201 });
 });
 
-/** Ensure exactly one start, unique ids, valid edges, branch labels, frames, and dagre positions. */
+/** Ensure exactly one start, unique ids, valid edges, branch labels, frames, and initial positions. */
 function normalize(
   rawNodes: z.infer<typeof schema>["nodes"],
   rawEdges: z.infer<typeof schema>["edges"],
@@ -139,11 +140,15 @@ function normalize(
     outs.forEach((e, i) => { if (!e.label) e.label = outs.length === 2 ? (i === 0 ? "예" : "아니오") : `조건 ${i + 1}`; });
   }
   if (!frames.length) {
-    const pos = layoutFlow(nodes, edges);
+    const pos = stableLayout(
+      nodes.map((n) => ({ id: n.id, ...FLOW_NODE_SIZE[n.type] })),
+      edges.map((e) => ({ source: e.source, target: e.target })),
+      { direction: "LR", nodesep: 36, ranksep: 90, fanoutWrap: 6 },
+    ).positions;
     for (const n of nodes) n.position = pos.get(n.id) ?? { x: 0, y: 0 };
     return { nodes, edges, frames };
   }
-  // 레인별 dagre LR → 레인을 세로로 적층. frames 에는 캔버스 기하(x/y/w/h)가 함께 실린다.
+  // 레인별 LR 배치 → 레인을 세로로 적층. frames 에는 캔버스 기하(x/y/w/h)가 함께 실린다.
   const laid = layoutFramedFlow(nodes, edges, frames);
   for (const n of nodes) n.position = laid.positions.get(n.id) ?? { x: 0, y: 0 };
   return { nodes, edges, frames: laid.frames };

@@ -3,7 +3,8 @@
  * 정보구조도 캔버스 (FigJam 류 자유 배치).
  *
  * - 노드를 아무데나 끌어다 놓을 수 있고, 놓은 좌표는 `page.meta.x/y` 로 저장된다.
- * - 좌표가 없는 페이지만 dagre 자동 배치로 자리를 잡는다(신규 생성/AI 제안 직후).
+ * - 좌표가 없는 페이지만 자동 배치로 자리를 잡는다(신규 생성/AI 제안 직후). 배치는 `stableLayout` 이
+ *   맡는데, 저장된 좌표를 기준으로 삼기 때문에 페이지가 늘어나도 기존 배치가 흐트러지지 않는다.
  * - 계층(상위-하위) 변경은 "본체 드래그"가 아니라 **연결선**으로 한다.
  *   본체 드래그는 순수 이동이라 위치만 바뀌고, 아래 핸들 → 다른 노드 위 핸들로 선을 이으면 상위-하위가 된다.
  *   선을 지우면 최상위로 빠진다. (예전엔 빈 곳에 놓기만 해도 최상위로 튀어나가 사고가 잦았다)
@@ -15,7 +16,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { Page } from "@/lib/types";
-import { layoutTree } from "@/lib/flow/layout";
+import { stableLayout } from "@/lib/flow/autolayout";
 import { PageNode, IA_NODE_SIZE, type PageFlowNode } from "./PageNode";
 import { descendantIds, type SpecRef, type ViewMode } from "./types";
 
@@ -52,11 +53,18 @@ function Inner({ pages, specs, view, selectedId, onSelect, onReparent, onMove }:
 
   useEffect(() => {
     const size = IA_NODE_SIZE[view];
-    // 저장된 좌표가 없는 페이지만 자동 배치로 자리를 잡아준다.
-    const auto = layoutTree(pages, size);
+    // 저장된 좌표는 그대로 두고(=previous), 좌표가 없는 새 페이지만 끼워 넣는다.
+    // 예전엔 전체를 새로 배치한 뒤 저장된 좌표로 덮어써서, 새 페이지가 기존 페이지 위에 겹쳐 놓이곤 했다.
+    const saved = new Map(pages.filter((p) => p.meta.x !== undefined && p.meta.y !== undefined).map((p) => [p.id, { x: p.meta.x!, y: p.meta.y! }]));
+    const pageIds = new Set(pages.map((p) => p.id));
+    const laid = stableLayout(
+      pages.map((p) => ({ id: p.id, width: size.width, height: size.height })),
+      pages.filter((p) => p.parentId && pageIds.has(p.parentId)).map((p) => ({ source: p.parentId!, target: p.id })),
+      { direction: "TB", nodesep: 28, ranksep: 60, fanoutWrap: 6, previous: saved },
+    );
     setNodes(pages.map((p) => ({
       id: p.id, type: "page" as const,
-      position: { x: p.meta.x ?? auto.get(p.id)?.x ?? 0, y: p.meta.y ?? auto.get(p.id)?.y ?? 0 },
+      position: laid.positions.get(p.id) ?? { x: 0, y: 0 },
       width: size.width, height: size.height,
       selected: p.id === selectedId,
       data: { page: p, detail: view === "detail", specNames: p.linkedSpecIds.map((id) => specName.get(id)).filter((x): x is string => !!x), isRoot: !p.parentId, dropTarget: false },

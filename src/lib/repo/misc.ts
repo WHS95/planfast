@@ -60,7 +60,7 @@ export const pages = {
     });
     projects.touch(projectId);
   },
-  /** 저장된 좌표를 지워 자동 배치(dagre)로 되돌린다. meta 병합 갱신으로는 키 삭제가 안 되므로 별도 경로. */
+  /** 저장된 좌표를 지워 자동 배치로 되돌린다. meta 병합 갱신으로는 키 삭제가 안 되므로 별도 경로. */
   clearPositions(projectId: string) {
     const list = this.list(projectId);
     tx(() => {
