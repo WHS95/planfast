@@ -120,8 +120,8 @@ export function ReviewPanel({ project }: { project: Project }) {
                     </span>
                     <button className="text-[11px] text-muted hover:text-accent hover:underline truncate ml-auto" onClick={() => goTo(it)}>{it.targetLabel}</button>
                   </div>
-                  <div className="font-medium mb-1">{it.title}</div>
-                  <div className="text-muted whitespace-pre-wrap mb-2">{it.body}</div>
+                  <div className="font-medium mb-1 leading-snug">{stripRefs(it.title)}</div>
+                  <IssueBody body={it.body} />
                   <div className="flex gap-1">
                     {it.status !== "hold" && <button className="btn btn-sm" onClick={() => setStatus(it, "hold")}><Pause size={11} /> 보류</button>}
                     {it.status !== "resolved" && <button className="btn btn-sm" onClick={() => setStatus(it, "resolved")}><Check size={11} /> 해결</button>}
@@ -134,6 +134,45 @@ export function ReviewPanel({ project }: { project: Project }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * 제목 앞에 붙은 id 참조 묶음(`[abc/def] 제목`)을 화면에서 떼어낸다.
+ * 새 검토 결과는 서버에서 이미 정리되지만, 이전에 저장된 항목도 바로 읽히게 하려고 렌더 단계에서도 한 번 거른다.
+ */
+function stripRefs(title: string): string {
+  return title.replace(/^\s*\[[^\]]*\]\s*/, "").trim() || title;
+}
+
+/**
+ * 이슈 본문 렌더. 감사 결과는 "왜 문제인가" + "A/B/C 선택지" 구조라,
+ * 한 문단으로 이어 붙이면 읽기 힘들다. 선택지 줄은 따로 떼어 목록으로 보여준다.
+ */
+function IssueBody({ body }: { body: string }) {
+  const lines = body.split("\n");
+  const opts: { key: string; text: string }[] = [];
+  const rest: string[] = [];
+  for (const line of lines) {
+    const m = line.match(/^\s*([A-Z])\)\s*(.+)$/);
+    if (m) opts.push({ key: m[1], text: m[2] });
+    else rest.push(line);
+  }
+  const problem = rest.join("\n").trim();
+  return (
+    <div className="mb-2 space-y-1.5">
+      {problem && <p className="text-muted whitespace-pre-wrap leading-relaxed">{problem}</p>}
+      {opts.length > 0 && (
+        <ul className="space-y-1">
+          {opts.map((o) => (
+            <li key={o.key} className="flex gap-1.5 leading-relaxed">
+              <span className="shrink-0 font-semibold text-accent">{o.key}</span>
+              <span className="text-muted">{o.text}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

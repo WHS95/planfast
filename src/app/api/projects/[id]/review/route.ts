@@ -68,9 +68,13 @@ async function runBasicPerspectives(p: Project, perspectives: Exclude<ReviewPers
     itemsToMarkdown(list, { withIds: true }) || "(항목 없음)",
     "# 검토 관점", ...perspectives.map((k) => `- ${k} (${REVIEW_PERSPECTIVE_LABEL[k]}): ${PERSPECTIVE_HINT[k]}`),
     "지시: 선택된 관점별로 PRD와 기능명세서를 검토해 문제(warn)와 개선 제안(suggest)을 찾으세요. 관점당 2~5개, 전체 20개 이내. target은 반드시 위에 있는 섹션키 또는 항목 id를 사용. 유저플로우·와이어프레임은 검토 대상이 아닙니다. 구체적이고 실행 가능하게 한국어로.",
+    "읽는 사람은 id 를 모르는 기획자입니다. target 필드에만 id 를 쓰고, title·body 안에서는 다른 항목을 가리킬 때 반드시 사람이 읽는 이름으로 부르세요(예: '멤버 강퇴' 항목). id 문자열을 본문에 넣지 마세요.",
   ].filter(Boolean).join("\n\n");
   const r = await generateJson({ task: "review.basic", system: MANNY_SYSTEM, prompt, schema });
-  return r.data.items.filter((it) => perspectives.includes(it.perspective as Exclude<ReviewPerspective, "edge_case">));
+  const itemById = new Map(list.map((i) => [i.id, i]));
+  return r.data.items
+    .filter((it) => perspectives.includes(it.perspective as Exclude<ReviewPerspective, "edge_case">))
+    .map((it) => ({ ...it, title: cleanTitle(it.title, itemById), body: humanizeIds(it.body, itemById) }));
 }
 
 const EDGE_CASE_SYSTEM = `당신은 "spec-edge-case-auditor" 방법론을 수행하는 정합성 감사관입니다.
@@ -90,14 +94,35 @@ const EDGE_CASE_SYSTEM = `당신은 "spec-edge-case-auditor" 방법론을 수행
 [4] 5W1H: 남은 REQ마다 who/when/what/where/why/how 중 빠지거나 상충하는 부분을 찾는다.
 [5] 통합: 같은 원인의 이슈는 하나로 합치고, 심각도(S1=금전·데이터 손상 > S2=기능 불가·상태 꼬임 > S3=UX·문구)로 태깅.`;
 
+/**
+ * 항목 id 를 사람이 읽는 제목으로 바꾼다.
+ * 감사 프롬프트가 "id 를 REQ 참조로 쓰라"고 지시하기 때문에 모델이 본문·제목에 id 를 그대로 흘린다
+ * (`[w6wrs94f7j3n/5lh1mjp37j3n]` 처럼). 기획자에겐 아무 의미 없는 문자열이라 화면에 나가기 전에 치환한다.
+ * 실제 존재하는 id 만 골라 바꾸므로 우연히 비슷한 문자열을 건드리지 않는다.
+ */
+function humanizeIds(text: string, itemById: Map<string, ReturnType<typeof items.list>[number]>): string {
+  if (!text) return text;
+  const ids = [...itemById.keys()].filter((id) => text.includes(id));
+  if (!ids.length) return text;
+  const re = new RegExp(ids.map((id) => id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).sort((a, b) => b.length - a.length).join("|"), "g");
+  return text.replace(re, (id) => `'${itemById.get(id)?.title || "제목 없음"}'`);
+}
+
+/** 제목 앞에 붙은 참조 묶음(`[id/id] 제목`, `[id vs id] 제목`)을 떼어낸다. 대상은 targetLabel 로 이미 보여준다. */
+function cleanTitle(raw: string, itemById: Map<string, ReturnType<typeof items.list>[number]>): string {
+  const stripped = raw.replace(/^\s*\[[^\]]*\]\s*/, "").trim();
+  return humanizeIds(stripped || raw.trim(), itemById);
+}
+
 /** edge_case: spec-edge-case-auditor 방법론 기반 정합성 감사. 항상 Claude Fable 5.1로 실행. */
 async function runEdgeCaseAudit(p: Project, list: ReturnType<typeof items.list>): Promise<RawFinding[]> {
   const schema = z.object({
     issues: z.array(z.object({
       severity: z.enum(["critical", "warn", "suggest"]).describe("critical=S1(금전·데이터 손상), warn=S2(기능 불가·상태 꼬임), suggest=S3(UX·문구)"),
       target: z.string().describe('가장 관련 있는 대상 하나만: PRD 섹션이면 "prd:<섹션키>", 기능명세서 항목이면 대괄호·백틱 없이 그 항목의 id 문자열 그대로 (예: prd:overview 또는 6fl7vwwm0cgv)'),
-      title: z.string().describe("한 줄 제목 (예: REQ 참조 포함)"),
-      question: z.string().describe("기획자가 결정하면 문서가 좋아지는 질문. 근거와 함께, 가능하면 2~3개 선택지(A/B/C)를 포함해 3~6문장으로."),
+      title: z.string().describe("무엇이 문제인지 한 줄로. id·대괄호 참조를 쓰지 말고 항목은 이름으로 부를 것 (예: '출석 체크 정정 시 노쇼 카운트 재계산 규칙 없음')"),
+      problem: z.string().describe("왜 문제인지 2~4문장. 어떤 규칙끼리 충돌하는지/무엇이 비어 있는지 근거를 들 것. 항목은 id 가 아니라 이름으로 부를 것. 선택지는 여기 쓰지 말 것."),
+      options: z.array(z.string()).min(2).max(3).describe("기획자가 고를 선택지 2~3개. 각 항목은 'A) ' 같은 접두사 없이 선택지 내용만 한 문장으로."),
     })),
   });
   const prompt = [
@@ -107,9 +132,18 @@ async function runEdgeCaseAudit(p: Project, list: ReturnType<typeof items.list>)
     "# 기능명세서 — 요구사항 → 기능 → 상세기능 (각 항목의 [id]를 REQ 참조로 사용)",
     itemsToMarkdown(list, { withIds: true }) || "(항목 없음)",
     "지시: 위 방법론([0]~[5])을 내부적으로 수행한 뒤, 최종 이슈만 출력하세요. 최대 25개, 심각도 순(S1 먼저). target은 반드시 위에 있는 섹션키 또는 항목 id 중 하나. 문서에 없는 사실을 지어내지 마세요 — 빈칸은 빈칸인 채로 이슈화하세요. 한국어로.",
+    "읽는 사람은 id 를 모르는 기획자입니다. target 필드에만 id 를 쓰고, title·problem·options 안에서는 항목을 반드시 사람이 읽는 이름으로 부르세요(예: '노쇼 카운트 집계'). 대괄호 참조([abc/def])를 제목에 붙이지 마세요.",
   ].filter(Boolean).join("\n\n");
   const r = await generateJson({ task: "review.edge_case", system: EDGE_CASE_SYSTEM, prompt, schema });
-  return r.data.issues.map((it) => ({ perspective: "edge_case" as const, severity: it.severity, target: it.target, title: it.title, body: it.question }));
+  const itemById = new Map(list.map((i) => [i.id, i]));
+  return r.data.issues.map((it) => ({
+    perspective: "edge_case" as const,
+    severity: it.severity,
+    target: it.target,
+    title: cleanTitle(it.title, itemById),
+    // 문제 → 빈 줄 → 선택지 한 줄씩. 한 문단으로 이어 붙이면 사람이 읽기 어렵다.
+    body: [humanizeIds(it.problem, itemById), ...(it.options.length ? [it.options.map((o, i) => `${String.fromCharCode(65 + i)}) ${humanizeIds(o, itemById)}`).join("\n")] : [])].join("\n\n"),
+  }));
 }
 
 /** POST { perspectives } → run review synchronously */
