@@ -20,6 +20,7 @@ const TABS = [
   { key: "ia", label: "정보구조도" },
   { key: "flow", label: "유저플로우" },
   { key: "wireframe", label: "와이어프레임" },
+  { key: "spec", label: "화면설계서" },
 ];
 const TOOLS: { key: ToolTab; label: string; icon: React.ComponentType<{ size?: number }> }[] = [
   { key: "manny", label: "매니", icon: Bot },

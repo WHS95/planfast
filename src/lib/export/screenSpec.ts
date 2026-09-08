@@ -18,7 +18,8 @@ import {
 } from "@/lib/types";
 import { flattenPages } from "./ia";
 
-const esc = (s: string) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+export const escHtml = (s: string) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const esc = escHtml;
 /** 이름 매칭용 정규화 — 공백/괄호/조사성 접미어("페이지","화면")를 떼고 비교한다. */
 const norm = (s: string) => s.toLowerCase().replace(/[\s()[\]{}·・_-]/g, "").replace(/(페이지|화면|page|screen)$/g, "");
 
@@ -107,6 +108,56 @@ function policyHtml(specs: Item[], items: Item[]): string {
     </div>`;
   });
   return blocks.join("");
+}
+
+// ---- 구조화된 章 모델 --------------------------------------------------------
+// 화면설계서 탭(앱 안에서 보기)과 HTML 내보내기가 같은 데이터를 쓰도록 한 곳에서 만든다.
+// 두 곳에서 따로 조립하면 "미리보기와 내보낸 문서가 다른" 문제가 생긴다.
+
+export interface SpecPolicy { specId: string; specTitle: string; featureTitle: string; slots: { label: string; value: string }[]; acceptance: { reqTitle: string; texts: string[] } | null }
+export interface SpecChapter {
+  no: number;
+  pageId: string;
+  name: string;
+  definition: string;
+  todos: { id: string; title: string }[];
+  policies: SpecPolicy[];
+  flow: { name: string; frameLabel: string | null; svg: string } | null;
+  screen: { wfName: string; device: string; html: string } | null;
+}
+export interface BuiltSpec { chapters: SpecChapter[]; history: { name: string; date: string; kind: string }[] }
+
+export function buildScreenSpec({ pages, items, flows, wireframes, versions }: ScreenSpecInput): BuiltSpec {
+  const specById = new Map(items.map((i) => [i.id, i]));
+  const chapters = flattenPages(pages).map(({ page }, i): SpecChapter => {
+    const specs = page.linkedSpecIds.map((id) => specById.get(id)).filter((x): x is Item => !!x);
+    const fm = matchFlow(page, flows);
+    const wm = matchWireframe(page, wireframes);
+    return {
+      no: i + 1,
+      pageId: page.id,
+      name: page.name,
+      definition: page.description,
+      todos: specs.map((sp) => ({ id: sp.id, title: sp.title })),
+      policies: specs.map((sp) => {
+        const d = sp.data as SpecData;
+        const feature = items.find((x) => x.id === sp.parentId);
+        const req = feature ? items.find((x) => x.id === feature.parentId) : undefined;
+        const acc = req ? ((req.data as RequirementData).acceptance ?? []).filter((a) => a.text.trim()) : [];
+        return {
+          specId: sp.id,
+          specTitle: sp.title,
+          featureTitle: feature?.title ?? "",
+          slots: SPEC_SLOTS.filter((k) => (d.slots?.[k] ?? "").trim()).map((k) => ({ label: SPEC_SLOT_LABEL[k], value: d.slots![k]! })),
+          acceptance: acc.length && req ? { reqTitle: req.title, texts: acc.map((a) => a.text) } : null,
+        };
+      }),
+      flow: fm ? { name: fm.flow.name, frameLabel: fm.frameId ? (fm.flow.frames.find((f) => f.id === fm.frameId)?.label ?? null) : null, svg: flowSvg(fm.flow, fm.frameId) } : null,
+      screen: wm ? { wfName: wm.wf.name, device: wm.wf.device, html: wm.page.html } : null,
+    };
+  });
+  const history = versions.slice(0, 12).map((v) => ({ name: v.name, date: v.createdAt.slice(0, 10), kind: v.auto ? "자동 저장" : "수동 저장" }));
+  return { chapters, history };
 }
 
 // ---- 문서 조립 ---------------------------------------------------------------

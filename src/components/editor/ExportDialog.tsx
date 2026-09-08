@@ -41,7 +41,7 @@ function ExportButton({ k, icon: Icon, label, hint, onClick, disabled, busy }: E
 }
 
 export function ExportDialog({ project, current, onClose }: { project: Project; current?: string; onClose: () => void }) {
-  const [doc, setDoc] = useState<Doc>(current === "flow" ? "flow" : current === "wireframe" ? "wireframe" : current === "ia" ? "ia" : "features");
+  const [doc, setDoc] = useState<Doc>(current === "flow" ? "flow" : current === "wireframe" ? "wireframe" : current === "ia" ? "ia" : current === "spec" ? "spec" : "features");
   const [flows, setFlows] = useState<FlowLite[]>([]);
   const [flowId, setFlowId] = useState("");
   const [wfs, setWfs] = useState<WfLite[]>([]);
