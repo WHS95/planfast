@@ -9,7 +9,7 @@ export const GET = handler(async (_req, { params }: P) => {
   const { id, wfId } = await params;
   const wf = wireframes.get(wfId);
   if (!wf || wf.projectId !== id) return notFound();
-  return ok({ ...wf, running: isRunning(wf.id), pages: wireframes.pages(wf.id) });
+  return ok({ ...wf, running: isRunning(wf.id), pages: wireframes.withUseCases(wf, wireframes.pages(wf.id)) });
 });
 
 /** PATCH { name?, device?, request?, orderedIds? } */

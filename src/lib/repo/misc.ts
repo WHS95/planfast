@@ -106,7 +106,7 @@ const mapWf = (r: R): Wireframe => ({
   request: s(r.request), createdAt: s(r.created_at), updatedAt: s(r.updated_at),
 });
 const mapWfPage = (r: R): WireframePage => ({
-  id: s(r.id), wireframeId: s(r.wireframe_id), order: r.order as number, name: s(r.name), sourceNodeId: (r.source_node_id as string) ?? null,
+  id: s(r.id), wireframeId: s(r.wireframe_id), order: r.order as number, name: s(r.name), useCase: s(r.use_case), sourceNodeId: (r.source_node_id as string) ?? null,
   html: s(r.html), status: r.status as WireframePage["status"], error: (r.error as string) ?? null, createdAt: s(r.created_at), updatedAt: s(r.updated_at),
 });
 export const wireframes = {
@@ -127,17 +127,34 @@ export const wireframes = {
   remove(id: string) { run("DELETE FROM wireframe_pages WHERE wireframe_id=?", id); run("DELETE FROM wireframes WHERE id=?", id); },
   pages: (wireframeId: string) => all('SELECT * FROM wireframe_pages WHERE wireframe_id=? ORDER BY "order"', wireframeId).map(mapWfPage),
   getPage: (id: string) => { const r = get("SELECT * FROM wireframe_pages WHERE id=?", id); return r ? mapWfPage(r) : undefined; },
-  addPage(input: { wireframeId: string; name: string; sourceNodeId?: string | null; order?: number; html?: string; status?: WireframePage["status"] }): WireframePage {
+  addPage(input: { wireframeId: string; name: string; useCase?: string; sourceNodeId?: string | null; order?: number; html?: string; status?: WireframePage["status"] }): WireframePage {
     const id = rid(); const t = now();
     const order = input.order ?? ((get<{ m: number | null }>('SELECT MAX("order") m FROM wireframe_pages WHERE wireframe_id=?', input.wireframeId)?.m ?? -1) + 1);
-    run('INSERT INTO wireframe_pages (id,wireframe_id,"order",name,source_node_id,html,status,error,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-      id, input.wireframeId, order, input.name, input.sourceNodeId ?? null, input.html ?? "", input.status ?? "pending", null, t, t);
+    run('INSERT INTO wireframe_pages (id,wireframe_id,"order",name,use_case,source_node_id,html,status,error,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+      id, input.wireframeId, order, input.name, input.useCase ?? "", input.sourceNodeId ?? null, input.html ?? "", input.status ?? "pending", null, t, t);
     return this.getPage(id)!;
   },
-  updatePage(id: string, patch: Partial<Pick<WireframePage, "name" | "order" | "html" | "status" | "error">>) {
+  updatePage(id: string, patch: Partial<Pick<WireframePage, "name" | "order" | "html" | "status" | "error" | "useCase">>) {
     const cur = this.getPage(id); if (!cur) return; const n = { ...cur, ...patch };
-    run('UPDATE wireframe_pages SET name=?, "order"=?, html=?, status=?, error=?, updated_at=? WHERE id=?', n.name, n.order, n.html, n.status, n.error, now(), id);
+    run('UPDATE wireframe_pages SET name=?, "order"=?, use_case=?, html=?, status=?, error=?, updated_at=? WHERE id=?', n.name, n.order, n.useCase, n.html, n.status, n.error, now(), id);
     return this.getPage(id);
+  },
+  /**
+   * 유즈케이스가 비어 있는 페이지를 원본 플로우의 프레임 라벨로 채워 돌려준다(DB 는 건드리지 않음).
+   * 이 기능 이전에 만든 와이어프레임도 다시 만들지 않고 스토리보드로 묶어 보기 위한 보정이며,
+   * 저장된 값이 있으면 그대로 둔다 — 생성 시점 스냅샷이 정본이다.
+   */
+  withUseCases(wf: Wireframe, list: WireframePage[]): WireframePage[] {
+    if (!list.length || list.every((p) => p.useCase)) return list;
+    const flow = wf.flowId ? flows.get(wf.flowId) : undefined;
+    if (!flow) return list;
+    const frameLabel = new Map(flow.frames.map((f) => [f.id, f.label]));
+    const nodeFrame = new Map(flow.nodes.map((n) => [n.id, n.frameId]));
+    return list.map((p) => {
+      if (p.useCase || !p.sourceNodeId) return p;
+      const label = nodeFrame.get(p.sourceNodeId) ? frameLabel.get(nodeFrame.get(p.sourceNodeId)!) : undefined;
+      return label ? { ...p, useCase: label } : p;
+    });
   },
   removePage(id: string) { run("DELETE FROM wireframe_pages WHERE id=?", id); },
 };

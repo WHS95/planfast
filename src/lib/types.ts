@@ -244,6 +244,12 @@ export interface WireframePage {
   wireframeId: string;
   order: number;
   name: string;
+  /**
+   * 이 화면이 속한 유즈케이스(= 유저플로우 프레임 라벨). 생성 시점에 스냅샷으로 박아둔다.
+   * 플로우를 나중에 바꿔도 이미 만든 와이어프레임의 묶음이 흐트러지지 않아야 하기 때문.
+   * 비어 있으면 "기타"로 묶인다.
+   */
+  useCase: string;
   sourceNodeId: string | null;
   html: string;
   status: WfPageStatus;

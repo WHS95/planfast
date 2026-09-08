@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
-import { FileSpreadsheet, FileText, FileCode2, Image as ImageIcon, GitBranch, Copy, Check, LayoutTemplate, BookText } from "lucide-react";
+import { FileSpreadsheet, FileText, FileCode2, Image as ImageIcon, GitBranch, Copy, Check, LayoutTemplate, BookText, LayoutGrid } from "lucide-react";
 import type { Flow, FlowNodeType, Project, Wireframe, WireframePage } from "@/lib/types";
 import { api } from "@/lib/api";
 import { Dialog } from "@/components/ui/Dialog";
@@ -199,7 +199,10 @@ export function ExportDialog({ project, current, onClose }: { project: Project; 
             <select className="input" value={wfId} onChange={(e) => setWfId(e.target.value)}>
               {wfs.map((w) => <option key={w.id} value={w.id}>{w.name} ({w.pages.length}p)</option>)}
             </select>
-            <ExportButton busy={busy} k="html" icon={LayoutTemplate} label="단일 HTML (.html)" hint="페이지 네비게이션 + 모든 페이지를 한 파일에 (클릭 이동)" onClick={() => download(exp(`wireframe-html&wfId=${wfId}`))} disabled={!wfId} />
+            <div className="grid grid-cols-2 gap-2">
+              <ExportButton busy={busy} k="html" icon={LayoutTemplate} label="단일 HTML (.html)" hint="페이지 네비게이션 + 모든 페이지를 한 파일에 (클릭 이동)" onClick={() => download(exp(`wireframe-html&wfId=${wfId}`))} disabled={!wfId} />
+              <ExportButton busy={busy} k="story" icon={LayoutGrid} label="스토리보드 (.html)" hint="유즈케이스별로 화면을 번호·화살표와 함께 나열 (인쇄 시 A4 가로)" onClick={() => download(exp(`storyboard-html&wfId=${wfId}`))} disabled={!wfId} />
+            </div>
             {wf && (
               <div className="card divide-y max-h-56 overflow-y-auto">
                 {[...wf.pages].sort((a, b) => a.order - b.order).map((p) => (

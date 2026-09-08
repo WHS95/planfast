@@ -1,13 +1,14 @@
 "use client";
 import { useMemo, useState } from "react";
 import clsx from "clsx";
-import { Check, CircleDashed, AlertCircle, GripVertical, Trash2, RefreshCw, Play, RotateCcw, Monitor, Smartphone, Code2, MessageSquare, X } from "lucide-react";
+import { Check, CircleDashed, AlertCircle, GripVertical, Trash2, RefreshCw, Play, RotateCcw, Monitor, Smartphone, Code2, MessageSquare, X, LayoutGrid, Square } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Device, WireframePage } from "@/lib/types";
 import { useEditor, broadcastChange } from "@/components/editor/EditorContext";
 import { Spinner } from "@/components/ui";
 import type { WfSummary } from "./WireframeTab";
 import { useDialog } from "@/components/ui/DialogProvider";
+import { Storyboard } from "./Storyboard";
 
 function StatusIcon({ status }: { status: WireframePage["status"] }) {
   if (status === "done") return <Check size={13} className="text-ok" />;
@@ -20,6 +21,8 @@ export function WireframeViewer({ projectId, wf, onChange, onReload }: { project
   const { confirm, alert, prompt } = useDialog();
   const { mention } = useEditor();
   const [pageId, setPageId] = useState<string | null>(wf.pages[0]?.id ?? null);
+  /** 한 장씩 보기 ↔ 스토리보드(유즈케이스별 흐름) */
+  const [mode, setMode] = useState<"single" | "story">("single");
   const [editing, setEditing] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -115,18 +118,24 @@ export function WireframeViewer({ projectId, wf, onChange, onReload }: { project
           <button className="btn btn-sm btn-ghost" disabled={running || busy !== null} onClick={() => generate("all")}><RotateCcw size={13} /> 전체 다시 생성</button>
           {running && <span className="text-muted ml-1 flex items-center gap-1"><Spinner className="!w-3 !h-3" /> 생성 중…</span>}
           <div className="ml-auto flex items-center gap-1">
+            <div className="inline-flex border rounded-md overflow-hidden mr-1">
+              <button className={clsx("px-2 py-1 flex items-center gap-1", mode === "single" ? "bg-accent-soft text-accent" : "text-muted")} title="한 장씩 보기" onClick={() => setMode("single")}><Square size={12} /> 한 장</button>
+              <button className={clsx("px-2 py-1 border-l flex items-center gap-1", mode === "story" ? "bg-accent-soft text-accent" : "text-muted")} title="유즈케이스별 흐름으로 보기" onClick={() => setMode("story")}><LayoutGrid size={12} /> 스토리보드</button>
+            </div>
             <div className="inline-flex border rounded-md overflow-hidden">
               <button className={clsx("px-2 py-1", wf.device === "desktop" ? "bg-accent-soft text-accent" : "text-muted")} title="데스크톱" onClick={() => setDevice("desktop")}><Monitor size={13} /></button>
               <button className={clsx("px-2 py-1", wf.device === "mobile" ? "bg-accent-soft text-accent" : "text-muted")} title="모바일" onClick={() => setDevice("mobile")}><Smartphone size={13} /></button>
             </div>
-            <button className={clsx("btn btn-sm btn-ghost", editing && "bg-accent-soft text-accent")} disabled={!page} onClick={() => setEditing((e) => !e)}><Code2 size={13} /> HTML 편집</button>
+            <button className={clsx("btn btn-sm btn-ghost", editing && "bg-accent-soft text-accent")} disabled={!page || mode === "story"} onClick={() => setEditing((e) => !e)}><Code2 size={13} /> HTML 편집</button>
             <button className="btn btn-sm btn-ghost" disabled={!page} onClick={() => page && mention({ type: "wireframe", id: page.id, label: `와이어프레임 · ${page.name}` })}><MessageSquare size={13} /> 매니에게 질문</button>
           </div>
         </div>
 
         <div className="flex-1 min-h-0 flex">
-          <div className="flex-1 min-w-0 overflow-auto bg-bg p-6">
-            {!page ? (
+          <div className={clsx("flex-1 min-w-0 overflow-auto bg-bg", mode === "single" && "p-6")}>
+            {mode === "story" ? (
+              <Storyboard pages={pages} device={wf.device} onOpen={(p) => { setPageId(p.id); setMode("single"); }} />
+            ) : !page ? (
               <div className="text-sm text-muted text-center py-20">페이지가 없습니다. 상단에서 새 와이어프레임을 만들어 주세요.</div>
             ) : page.status === "done" && page.html ? (
               wf.device === "mobile" ? (
