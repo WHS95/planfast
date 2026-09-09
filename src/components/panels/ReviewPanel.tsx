@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { ClipboardCheck, RotateCw, AlertTriangle, Lightbulb, MessageSquare, Pause, Check } from "lucide-react";
 import clsx from "clsx";
 import { REVIEW_PERSPECTIVES, REVIEW_PERSPECTIVE_LABEL, type Project, type Review, type ReviewItem, type ReviewPerspective } from "@/lib/types";
-import { api } from "@/lib/api";
+import { api, readSse } from "@/lib/api";
 import { useEditor } from "@/components/editor/EditorContext";
 import { Spinner, Empty } from "@/components/ui";
 
@@ -43,13 +43,20 @@ export function ReviewPanel({ project }: { project: Project }) {
     setSelected((s) => { const n = new Set(s); if (n.has(p)) n.delete(p); else n.add(p); return n; });
   }
 
+  /** 스트리밍 — 이슈가 저장되는 대로 목록에 하나씩 나타난다(정합성 감사는 3~5분이라 특히 중요). */
   async function run() {
     if (!selected.size) return;
     setRunning(true); setError(null); setWarning(null);
     try {
-      const r = await api<{ review: Review; items: ReviewItem[]; warning?: string }>(`/api/projects/${pid}/review`, { method: "POST", json: { perspectives: [...selected] } });
-      setReview(r.review); setItems(r.items);
-      if (r.warning) setWarning(r.warning);
+      const laneErrors: string[] = [];
+      await readSse(`/api/projects/${pid}/review/stream`, { method: "POST", json: { perspectives: [...selected] } }, (event, data) => {
+        if (event === "review") { setReview((data as { review: Review }).review); setItems([]); }
+        else if (event === "item") { const it = (data as { item: ReviewItem }).item; setItems((cur) => (cur.some((x) => x.id === it.id) ? cur : [...cur, it])); }
+        else if (event === "lane") { const l = data as { lane: string; status: string; error?: string }; if (l.status === "error" && l.error) laneErrors.push(l.error); }
+        else if (event === "done") { const d = data as { review: Review; count: number; errors: string[] }; setReview(d.review); if (d.errors.length) setWarning(d.errors.join(" / ")); if (!d.count && d.errors.length) setError(`검토 실패: ${d.errors.join(" / ")}`); }
+        else if (event === "error") throw new Error((data as { message?: string }).message ?? "검토 중 오류");
+      });
+      if (laneErrors.length) setWarning(laneErrors.join(" / "));
     } catch (e) { setError((e as Error).message); } finally { setRunning(false); }
   }
 

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Sparkles, Trash2, Plus, CheckCircle2, ArrowRightCircle, Loader2 } from "lucide-react";
 import clsx from "clsx";
-import { api, debounce } from "@/lib/api";
+import { api, debounce, readSse } from "@/lib/api";
 import type { Decision, Meeting } from "@/lib/types";
 import { Spinner } from "@/components/ui";
 
@@ -34,11 +34,15 @@ export function MeetingEditor({ meeting, initialDecisions, projects }: { meeting
     setSaved(false); save(p);
   }
 
+  /** 스트리밍 — 결정이 추출되는 대로 목록에 하나씩 추가된다. */
   async function extract() {
     setExtracting(true); setError(null);
     try {
-      const r = await api<{ decisions: Decision[] }>(`/api/meetings/${meeting.id}/extract`, { method: "POST" });
-      setDecisions(r.decisions);
+      await readSse(`/api/meetings/${meeting.id}/extract/stream`, { method: "POST" }, (event, data) => {
+        if (event === "decision") { const d = (data as { decision: Decision }).decision; setDecisions((ds) => (ds.some((x) => x.id === d.id) ? ds : [...ds, d])); }
+        else if (event === "done") setDecisions((data as { decisions: Decision[] }).decisions);
+        else if (event === "error") throw new Error((data as { message?: string }).message ?? "추출 중 오류");
+      });
     } catch (e) { setError((e as Error).message); } finally { setExtracting(false); }
   }
 

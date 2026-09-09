@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { motion } from "motion/react";
 import { Check, ChevronLeft, ChevronRight, Eye, EyeOff, MessageSquare, Plus, Sparkles, Trash2, X } from "lucide-react";
-import { api } from "@/lib/api";
+import { readSse } from "@/lib/api";
 import { CHILD_ITEM_TYPE, ITEM_TYPE_LABEL, SPEC_SLOTS, SPEC_SLOT_LABEL, rid, type FeatureData, type Item, type RequirementData, type SpecData, type SpecSlot } from "@/lib/types";
 import { useEditor } from "@/components/editor/EditorContext";
 import { Spinner } from "@/components/ui";
@@ -195,14 +195,16 @@ export function SlotsEditor({ projectId, item, data, onChange, compact }: { proj
   const setSlot = (s: SpecSlot, v: string) => onChange({ ...data, slots: { ...slots, [s]: v } });
   const toggleHide = (s: SpecSlot) => onChange({ ...data, hiddenSlots: hidden.has(s) ? [...hidden].filter((x) => x !== s) : [...hidden, s] });
 
+  /** 스트리밍 — 슬롯이 완성되는 대로 제안이 한 칸씩 채워진다. */
   async function aiFill() {
     setBusy(true);
+    setProposal({});
     try {
-      const r = await api<{ slots: Record<SpecSlot, string> }>(`/api/projects/${projectId}/ai/slots`, { method: "POST", json: { itemId: item.id } });
-      setProposal(() => {
-        const next: Partial<Record<SpecSlot, string>> = {};
-        for (const s of SPEC_SLOTS) if (r.slots[s]?.trim() && r.slots[s] !== slots[s]) next[s] = r.slots[s];
-        return next;
+      await readSse(`/api/projects/${projectId}/ai/slots/stream`, { method: "POST", json: { itemId: item.id } }, (event, data) => {
+        if (event === "slot") {
+          const { key, value } = data as { key: SpecSlot; value: string };
+          if (value.trim() && value !== slots[key]) setProposal((p) => ({ ...p, [key]: value }));
+        } else if (event === "error") throw new Error((data as { message?: string }).message ?? "생성 중 오류");
       });
     } catch (e) { alert((e as Error).message); } finally { setBusy(false); }
   }

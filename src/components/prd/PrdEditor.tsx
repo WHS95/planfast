@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Plus, Sparkles, Trash2, Check, X, Wand2, MessageSquare } from "lucide-react";
 import clsx from "clsx";
-import { api, debounce } from "@/lib/api";
+import { api, debounce, readSse } from "@/lib/api";
 import { rid, type Prd, type PrdField } from "@/lib/types";
 import { useEditor, broadcastChange } from "@/components/editor/EditorContext";
 import { Spinner } from "@/components/ui";
@@ -63,11 +63,14 @@ export function PrdEditor({ projectId, initial }: { projectId: string; initial: 
     update((prev) => ({ sections: prev.sections.map((s) => s.id === secId ? { ...s, title } : s) }));
   }
 
+  /** 스트리밍 — 항목이 완성되는 대로 제안 카드가 하나씩 채워진다(전부 끝날 때까지 기다리지 않음). */
   async function aiFill(scope: "all" | string) {
     setBusy(scope);
     try {
-      const r = await api<{ fields: Record<string, string> }>(`/api/projects/${projectId}/ai/prd`, { method: "POST", json: { sectionId: scope === "all" ? null : scope } });
-      setProposal((p) => ({ ...p, ...r.fields }));
+      await readSse(`/api/projects/${projectId}/ai/prd/stream`, { method: "POST", json: { sectionId: scope === "all" ? null : scope } }, (event, data) => {
+        if (event === "field") { const f = data as { id: string; content: string }; setProposal((p) => ({ ...p, [f.id]: f.content })); }
+        else if (event === "error") throw new Error((data as { message?: string }).message ?? "생성 중 오류");
+      });
     } catch (e) { alert((e as Error).message); } finally { setBusy(null); }
   }
   function accept(fieldId: string) {
