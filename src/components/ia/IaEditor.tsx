@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { ChevronDown, LayoutList, Plus, Sparkles, Wand2, LayoutGrid, Table2, AlignHorizontalDistributeCenter, Link2 } from "lucide-react";
-import { api, debounce } from "@/lib/api";
+import { api, debounce, readSse } from "@/lib/api";
 import { rid, type Page, type PageMeta } from "@/lib/types";
 import { useEditor, broadcastChange } from "@/components/editor/EditorContext";
 import { Spinner } from "@/components/ui";
@@ -111,8 +111,43 @@ export function IaEditor({ projectId, initialPages, initialSpecs }: { projectId:
   }
 
   // ---- AI
+  /**
+   * 스트리밍 제안 트리 갱신 — `path` 위치의 페이지를 만들거나(이름만 먼저) 채운다(설명).
+   * 중간 경로가 아직 없으면 자리 표시자를 만들어 둔다(부모 이름이 먼저 오는 게 보통이지만 방어).
+   */
+  function placeAt(list: ProposedPage[], path: number[], patch: { name: string; description?: string }): ProposedPage[] {
+    const [i, ...rest] = path;
+    const next = [...list];
+    while (next.length <= i) next.push({ key: rid(), name: "", description: "", checked: true, children: [] });
+    const cur = next[i];
+    next[i] = rest.length
+      ? { ...cur, children: placeAt(cur.children, rest, patch) }
+      : { ...cur, name: patch.name, description: patch.description ?? cur.description };
+    return next;
+  }
+
   async function ai(mode: "generate" | "children" | "enrich" | "link", pageId?: string) {
     setBusy(mode === "enrich" && pageId ? "enrich-one" : mode); setMenu(false);
+    // 트리 제안(generate/children)은 스트리밍 — 페이지가 이름부터 하나씩 제안 패널에 나타난다.
+    if (mode === "generate" || mode === "children") {
+      const parentId = mode === "children" ? (pageId ?? null) : null;
+      setProposal({ kind: "tree", parentId, pages: [] });
+      try {
+        let total = 0;
+        await readSse(`/api/projects/${projectId}/ai/ia/stream`, { method: "POST", json: { mode, pageId } }, (event, data) => {
+          if (event === "page") {
+            const d = data as { path: number[]; name: string; description?: string };
+            total++;
+            setProposal((cur) => cur && cur.kind === "tree" ? { ...cur, pages: placeAt(cur.pages, d.path, d) } : cur);
+          } else if (event === "error") {
+            throw new Error((data as { message?: string }).message ?? "생성 중 오류");
+          }
+        });
+        if (!total) { setProposal(null); alert("제안할 페이지를 찾지 못했습니다."); }
+      } catch (e) { alert((e as Error).message); setProposal(null); }
+      finally { setBusy(null); }
+      return;
+    }
     try {
       const r = await api<{ pages?: AiTree[]; parentId?: string | null; updates?: { id: string; name: string; description: string }[]; links?: { pageId: string; specIds: string[] }[] }>(`/api/projects/${projectId}/ai/ia`, { method: "POST", json: { mode, pageId } });
       if (mode === "enrich") setProposal({ kind: "enrich", updates: (r.updates ?? []).map((u) => ({ ...u, checked: true })) });

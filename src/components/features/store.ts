@@ -26,6 +26,11 @@ export interface ItemStore {
   /** approve/reject AI proposals in one server round-trip. `ids` omitted → every proposal in the project */
   resolveProposals: (action: ProposalAction, ids?: string[]) => Promise<void>;
   reload: () => Promise<void>;
+  /**
+   * 서버가 스트리밍으로 밀어준 항목을 즉시 반영한다(있으면 갱신, 없으면 추가).
+   * AI 생성 중 노드가 하나씩 생겨나는 데 쓴다. 사용자가 편집 중인 항목은 덮어쓰지 않는다.
+   */
+  upsert: (items: Item[]) => void;
 }
 
 function applyPatch(it: Item, patch: ItemPatch): Item {
@@ -137,8 +142,20 @@ export function useItemStore(projectId: string, initial: Item[]): ItemStore {
   const byId = useMemo(() => new Map(items.map((x) => [x.id, x])), [items]);
   const children = useCallback((parentId: string | null) => childrenOf(items, parentId), [items]);
 
-  return useMemo<ItemStore>(() => ({ items, byId, saving: inflight > 0 || dirty > 0, children, update, create, remove, move, resolveProposals, reload }),
-    [items, byId, inflight, dirty, children, update, create, remove, move, resolveProposals, reload]);
+  const upsert = useCallback((incoming: Item[]) => {
+    if (!incoming.length) return;
+    setItems((list) => {
+      const byIdLocal = new Map(list.map((x) => [x.id, x]));
+      for (const it of incoming) {
+        if (pending.current.has(it.id)) continue; // 편집 중인 항목은 사용자 입력이 우선
+        byIdLocal.set(it.id, it);
+      }
+      return [...byIdLocal.values()];
+    });
+  }, []);
+
+  return useMemo<ItemStore>(() => ({ items, byId, saving: inflight > 0 || dirty > 0, children, update, create, remove, move, resolveProposals, reload, upsert }),
+    [items, byId, inflight, dirty, children, update, create, remove, move, resolveProposals, reload, upsert]);
 }
 
 export type { ItemType, Priority, Status };

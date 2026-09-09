@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { Copy, GitFork, MessageSquare, Plus, Trash2, Workflow } from "lucide-react";
-import { api, debounce } from "@/lib/api";
+import { api, debounce, readSse } from "@/lib/api";
 import type { Flow } from "@/lib/types";
 import type { FlowReadiness } from "@/lib/flow/readiness";
 import { useEditor, broadcastChange } from "@/components/editor/EditorContext";
@@ -41,13 +41,28 @@ export function FlowEditor({ projectId, initialFlows, initialReadiness }: { proj
     api<Flow>(`/api/projects/${projectId}/flows/${id}`, { method: "PATCH", json: { name: n.trim() } }).then((f) => { setFlows((fs) => fs.map((x) => (x.id === id ? { ...x, name: f.name, updatedAt: f.updatedAt } : x))); broadcastChange(projectId); });
   }, 600)).current;
 
-  async function generate(n: string, request: string) {
-    setBusy("generate");
+  /**
+   * 스트리밍 생성 — 서버가 빈 플로우를 먼저 만들어 주면 바로 그 캔버스로 이동하고,
+   * 이후 노드·엣지가 생길 때마다 전체 스냅샷을 받아 캔버스가 다시 시드된다(노드가 하나씩 생겨남).
+   */
+  async function streamFlow(json: Record<string, unknown>, busyKey: "generate" | "revise") {
+    setBusy(busyKey);
+    let opened = false;
     try {
-      const f = await api<Flow>(`/api/projects/${projectId}/ai/flow`, { method: "POST", json: { mode: "new", name: n || undefined, request } });
-      setFlows((fs) => [f, ...fs]); setActiveId(f.id); setDialog(false); broadcastChange(projectId);
-    } catch (e) { alert((e as Error).message); } finally { setBusy(null); }
+      await readSse(`/api/projects/${projectId}/ai/flow/stream`, { method: "POST", json }, (event, data) => {
+        if (event === "flow" || event === "done") {
+          const f = (data as { flow: Flow }).flow;
+          setFlows((fs) => (fs.some((x) => x.id === f.id) ? fs.map((x) => (x.id === f.id ? f : x)) : [f, ...fs]));
+          if (!opened) { opened = true; setActiveId(f.id); setDialog(false); }
+        } else if (event === "error") {
+          throw new Error((data as { message?: string }).message ?? "생성 중 오류");
+        }
+      });
+      broadcastChange(projectId);
+    } catch (e) { alert((e as Error).message); await reload(); }
+    finally { setBusy(null); }
   }
+  function generate(n: string, request: string) { return streamFlow({ mode: "new", name: n || undefined, request }, "generate"); }
   async function createBlank(n: string) {
     setBusy("blank");
     try {
@@ -59,11 +74,7 @@ export function FlowEditor({ projectId, initialFlows, initialReadiness }: { proj
     if (!active) return;
     const request = await prompt({ title: "수정본 생성", message: "수정본에 반영할 요청 사항 (선택)", defaultValue: active.request, confirmLabel: "생성" });
     if (request === null) return;
-    setBusy("revise");
-    try {
-      const f = await api<Flow>(`/api/projects/${projectId}/ai/flow`, { method: "POST", json: { mode: "revise", flowId: active.id, request } });
-      setFlows((fs) => [f, ...fs]); setActiveId(f.id); broadcastChange(projectId);
-    } catch (e) { alert((e as Error).message); } finally { setBusy(null); }
+    await streamFlow({ mode: "revise", flowId: active.id, request }, "revise");
   }
   async function remove() {
     if (!active || !(await confirm({ message: `"${active.name}" 유저플로우를 삭제할까요?`, confirmLabel: "삭제", danger: true }))) return;
@@ -106,6 +117,17 @@ export function FlowEditor({ projectId, initialFlows, initialReadiness }: { proj
               </div>
             </div>
             <FlowCanvas projectId={projectId} flow={active} onSaved={(f) => setFlows((fs) => fs.map((x) => (x.id === f.id ? f : x)))} />
+            {(busy === "generate" || busy === "revise") && active.nodes.length <= 1 && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="card px-4 py-3 text-sm text-center shadow-lg flex items-center gap-3">
+                  <Spinner />
+                  <div>
+                    <div>매니가 사용자 여정을 구상하는 중</div>
+                    <div className="text-[11px] text-muted">프레임이 먼저 잡히고, 노드가 하나씩 이 자리에 그려집니다. 보통 30~60초 뒤 시작해요.</div>
+                  </div>
+                </div>
+              </div>
+            )}
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center">

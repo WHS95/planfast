@@ -304,8 +304,9 @@ export async function generateStream(o: AiStreamOptions): Promise<AiResult<strin
   return { ...r, data: stripToolArtifacts(r.data) };
 }
 
-const JSON_SYSTEM_SUFFIX = "이 요청에 대해서는 오직 JSON 하나만 출력합니다. 설명·인사·코드 펜스를 절대 붙이지 않습니다.";
-function jsonOnlyInstruction(jsonSchema: Record<string, unknown>): string {
+export const JSON_SYSTEM_SUFFIX = "이 요청에 대해서는 오직 JSON 하나만 출력합니다. 설명·인사·코드 펜스를 절대 붙이지 않습니다.";
+/** 스키마를 프롬프트에 내장하는 단일 턴 지시문. 스트리밍 라우트도 같은 것을 써야 출력 형태가 같다. */
+export function jsonOnlyInstruction(jsonSchema: Record<string, unknown>): string {
   return [
     "# 출력 형식 (반드시 지킬 것)",
     "아래 JSON Schema를 정확히 만족하는 JSON 값 **하나만** 출력하세요.",
