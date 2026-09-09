@@ -104,14 +104,14 @@ export function FlowEditor({ projectId, initialFlows, initialReadiness }: { proj
       <div className="flex-1 min-w-0 flex flex-col">
         {active ? (
           <>
-            <div className="h-11 border-b bg-panel flex items-center px-3 gap-2 shrink-0">
-              <input className="font-medium bg-transparent outline-none rounded px-2 py-1 hover:bg-black/[.03] focus:bg-black/[.04] w-72 truncate text-sm" value={name}
+            <div className="editor-toolbar h-11 border-b bg-panel">
+              <input className="font-medium bg-transparent outline-none rounded px-2 py-1 hover:bg-black/[.03] focus:bg-black/[.04] w-72 max-w-[45cqw] min-w-[120px] !shrink truncate text-sm" value={name}
                 onChange={(e) => { setName(e.target.value); saveName(active.id, e.target.value); }} />
-              {active.request && <span className="text-[11px] text-muted truncate max-w-[280px]" title={active.request}>요청: {active.request}</span>}
+              {active.request && <span className="tb-secondary text-[11px] text-muted truncate max-w-[280px] !shrink" title={active.request}>요청: {active.request}</span>}
               <div className="ml-auto flex items-center gap-1">
-                <button className="btn btn-sm btn-ghost" title="매니에게 질문" onClick={() => mention({ type: "flow", id: active.id, label: active.name })}><MessageSquare size={13} /> 매니에게 질문</button>
+                <button className="btn btn-sm btn-ghost" title="매니에게 질문" onClick={() => mention({ type: "flow", id: active.id, label: active.name })}><MessageSquare size={13} /><span className="tb-label"> 매니에게 질문</span></button>
                 <button className="btn btn-sm" disabled={busy !== null || !readiness.ready} title={readiness.ready ? "매니가 이 플로우의 개선본을 새 플로우로 만듭니다" : "PRD 한 줄 정의와 기능 1개 이상이 필요합니다"} onClick={revise}>
-                  {busy === "revise" ? <Spinner /> : <GitFork size={13} />} 수정본 만들기
+                  {busy === "revise" ? <Spinner /> : <GitFork size={13} />}<span className="tb-label"> 수정본 만들기</span>
                 </button>
                 <button className="btn btn-sm btn-ghost text-danger" onClick={remove}><Trash2 size={13} /></button>
               </div>

@@ -112,22 +112,22 @@ export function WireframeViewer({ projectId, wf, onChange, onReload }: { project
 
       {/* main */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <div className="h-10 border-b bg-panel flex items-center gap-1 px-2 shrink-0 text-xs">
-          <button className="btn btn-sm btn-ghost" disabled={!page || running || busy !== null} onClick={regenPage} title="이 페이지만 다시 생성 (추가 요청 가능)"><RefreshCw size={13} /> 다시 생성</button>
-          <button className="btn btn-sm btn-ghost" disabled={running || busy !== null || remaining === 0} onClick={() => generate("continue")} title="대기/오류 페이지 이어서 생성"><Play size={13} /> 이어서 생성{remaining ? ` (${remaining})` : ""}</button>
-          <button className="btn btn-sm btn-ghost" disabled={running || busy !== null} onClick={() => generate("all")}><RotateCcw size={13} /> 전체 다시 생성</button>
+        <div className="editor-toolbar h-10 border-b bg-panel gap-1 !px-2 text-xs">
+          <button className="btn btn-sm btn-ghost" disabled={!page || running || busy !== null} onClick={regenPage} title="이 페이지만 다시 생성 (추가 요청 가능)"><RefreshCw size={13} /><span className="tb-label"> 다시 생성</span></button>
+          <button className="btn btn-sm btn-ghost" disabled={running || busy !== null || remaining === 0} onClick={() => generate("continue")} title="대기/오류 페이지 이어서 생성"><Play size={13} /><span className="tb-label"> 이어서 생성{remaining ? ` (${remaining})` : ""}</span></button>
+          <button className="btn btn-sm btn-ghost" disabled={running || busy !== null} onClick={() => generate("all")} title="전체 다시 생성"><RotateCcw size={13} /><span className="tb-label"> 전체 다시 생성</span></button>
           {running && <span className="text-muted ml-1 flex items-center gap-1"><Spinner className="!w-3 !h-3" /> 생성 중…</span>}
           <div className="ml-auto flex items-center gap-1">
             <div className="inline-flex border rounded-md overflow-hidden mr-1">
-              <button className={clsx("px-2 py-1 flex items-center gap-1", mode === "single" ? "bg-accent-soft text-accent" : "text-muted")} title="한 장씩 보기" onClick={() => setMode("single")}><Square size={12} /> 한 장</button>
-              <button className={clsx("px-2 py-1 border-l flex items-center gap-1", mode === "story" ? "bg-accent-soft text-accent" : "text-muted")} title="유즈케이스별 흐름으로 보기" onClick={() => setMode("story")}><LayoutGrid size={12} /> 스토리보드</button>
+              <button className={clsx("px-2 py-1 flex items-center gap-1", mode === "single" ? "bg-accent-soft text-accent" : "text-muted")} title="한 장씩 보기" onClick={() => setMode("single")}><Square size={12} /><span className="tb-label"> 한 장</span></button>
+              <button className={clsx("px-2 py-1 border-l flex items-center gap-1", mode === "story" ? "bg-accent-soft text-accent" : "text-muted")} title="유즈케이스별 흐름으로 보기" onClick={() => setMode("story")}><LayoutGrid size={12} /><span className="tb-label"> 스토리보드</span></button>
             </div>
             <div className="inline-flex border rounded-md overflow-hidden">
               <button className={clsx("px-2 py-1", wf.device === "desktop" ? "bg-accent-soft text-accent" : "text-muted")} title="데스크톱" onClick={() => setDevice("desktop")}><Monitor size={13} /></button>
               <button className={clsx("px-2 py-1", wf.device === "mobile" ? "bg-accent-soft text-accent" : "text-muted")} title="모바일" onClick={() => setDevice("mobile")}><Smartphone size={13} /></button>
             </div>
-            <button className={clsx("btn btn-sm btn-ghost", editing && "bg-accent-soft text-accent")} disabled={!page || mode === "story"} onClick={() => setEditing((e) => !e)}><Code2 size={13} /> HTML 편집</button>
-            <button className="btn btn-sm btn-ghost" disabled={!page} onClick={() => page && mention({ type: "wireframe", id: page.id, label: `와이어프레임 · ${page.name}` })}><MessageSquare size={13} /> 매니에게 질문</button>
+            <button className={clsx("btn btn-sm btn-ghost", editing && "bg-accent-soft text-accent")} disabled={!page || mode === "story"} onClick={() => setEditing((e) => !e)} title="HTML 편집"><Code2 size={13} /><span className="tb-label"> HTML 편집</span></button>
+            <button className="btn btn-sm btn-ghost" disabled={!page} onClick={() => page && mention({ type: "wireframe", id: page.id, label: `와이어프레임 · ${page.name}` })} title="매니에게 질문"><MessageSquare size={13} /><span className="tb-label"> 매니에게 질문</span></button>
           </div>
         </div>
 

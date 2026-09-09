@@ -124,15 +124,16 @@ export function FeaturesEditor({ projectId, initial }: { projectId: string; init
   return (
     <FeaturesContext.Provider value={ctx}>
       <div className="flex-1 flex flex-col min-h-0">
-        <div className="h-12 border-b bg-panel flex items-center gap-2 px-3 shrink-0">
+        <div className="editor-toolbar h-12 border-b bg-panel">
           <div className="flex rounded-md border p-0.5 bg-bg">
             {VIEWS.map((v) => (
-              <button key={v.key} className={clsx("px-2.5 py-1 rounded text-xs flex items-center gap-1 transition-colors", view === v.key ? "bg-panel shadow-sm font-medium text-accent" : "text-muted hover:text-fg")} onClick={() => setView(v.key)}>
-                <v.icon size={13} /> {v.label}
+              <button key={v.key} className={clsx("px-2.5 py-1 rounded text-xs flex items-center gap-1 transition-colors", view === v.key ? "bg-panel shadow-sm font-medium text-accent" : "text-muted hover:text-fg")} onClick={() => setView(v.key)} title={v.label}>
+                <v.icon size={13} /><span className="tb-label"> {v.label}</span>
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-1 rounded-md border px-2 h-8 bg-bg ml-2 w-72">
+          {/* 검색창은 고정폭 대신 남는 폭을 쓰되 너무 좁아지진 않게 */}
+          <div className="flex items-center gap-1 rounded-md border px-2 h-8 bg-bg ml-2 w-72 max-w-[40cqw] min-w-[140px] !shrink">
             <Search size={13} className="text-muted shrink-0" />
             <input ref={searchRef} className="bg-transparent outline-none text-sm flex-1 min-w-0" placeholder="검색 (제목·설명·슬롯)" value={query} onChange={(e) => changeQuery(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") step(e.shiftKey ? -1 : 1); if (e.key === "Escape") changeQuery(""); }} />

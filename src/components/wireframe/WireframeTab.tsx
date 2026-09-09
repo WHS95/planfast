@@ -72,11 +72,11 @@ export function WireframeTab({ projectId, initialWireframes, initialFlows }: { p
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      <div className="h-11 border-b bg-panel flex items-center gap-2 px-3 shrink-0">
+      <div className="editor-toolbar h-11 border-b bg-panel">
         {list.length > 0 && (
           <div className="relative">
             <button className="btn btn-sm" onClick={() => setMenu((m) => !m)}>
-              <span className="max-w-[260px] truncate">{detail?.name ?? list.find((w) => w.id === selectedId)?.name ?? "와이어프레임 선택"}</span>
+              <span className="max-w-[260px] truncate !shrink">{detail?.name ?? list.find((w) => w.id === selectedId)?.name ?? "와이어프레임 선택"}</span>
               <ChevronDown size={14} />
             </button>
             {menu && (
@@ -95,7 +95,7 @@ export function WireframeTab({ projectId, initialWireframes, initialFlows }: { p
           <>
             <button className="btn btn-icon text-muted" title="이름 변경" onClick={rename}><Pencil size={14} /></button>
             <button className="btn btn-icon text-muted" title="삭제" onClick={remove}><Trash2 size={14} /></button>
-            <span className="text-xs text-muted ml-1">{busy ? `생성 중 ${doneCount}/${detail.pages.length}` : `생성됨 ${doneCount}/${detail.pages.length}`}</span>
+            <span className="tb-secondary text-xs text-muted ml-1">{busy ? `생성 중 ${doneCount}/${detail.pages.length}` : `생성됨 ${doneCount}/${detail.pages.length}`}</span>
           </>
         )}
         <div className="ml-auto flex items-center gap-2">

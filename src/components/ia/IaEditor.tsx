@@ -182,33 +182,33 @@ export function IaEditor({ projectId, initialPages, initialSpecs }: { projectId:
 
   return (
     <div className="flex-1 flex min-h-0">
-      <div className="w-64 shrink-0 border-r bg-panel min-h-0">
+      <div className="w-56 shrink-0 border-r bg-panel min-h-0">
         <PageList pages={pages} selectedId={selectedId} onSelect={setSelectedId} onReorder={reorder} onAddRoot={() => createPage(null)} />
       </div>
       <div className="flex-1 min-w-0 flex flex-col">
-        <div className="h-11 border-b bg-panel flex items-center px-3 gap-2 shrink-0">
+        <div className="editor-toolbar h-11 border-b bg-panel">
           <h1 className="text-sm font-semibold">정보구조도</h1>
-          <span className="text-[11px] text-muted">{pages.length}개 페이지 · {saved ? "저장됨" : "저장 중…"}</span>
+          <span className="tb-secondary text-[11px] text-muted">{pages.length}개 페이지 · {saved ? "저장됨" : "저장 중…"}</span>
           <div className="ml-auto flex items-center gap-1.5">
             <div className="flex rounded-md border overflow-hidden text-xs">
-              <button className={clsx("px-2.5 py-1 flex items-center gap-1", mode === "map" ? "bg-accent-soft text-accent font-medium" : "text-muted hover:text-fg")} onClick={() => setMode("map")}><LayoutGrid size={12} /> 맵</button>
-              <button className={clsx("px-2.5 py-1 border-l flex items-center gap-1", mode === "table" ? "bg-accent-soft text-accent font-medium" : "text-muted hover:text-fg")} onClick={() => setMode("table")}><Table2 size={12} /> 표</button>
+              <button className={clsx("px-2.5 py-1 flex items-center gap-1", mode === "map" ? "bg-accent-soft text-accent font-medium" : "text-muted hover:text-fg")} onClick={() => setMode("map")} title="맵"><LayoutGrid size={12} /><span className="tb-label"> 맵</span></button>
+              <button className={clsx("px-2.5 py-1 border-l flex items-center gap-1", mode === "table" ? "bg-accent-soft text-accent font-medium" : "text-muted hover:text-fg")} onClick={() => setMode("table")} title="표"><Table2 size={12} /><span className="tb-label"> 표</span></button>
             </div>
             {mode === "map" && (
               <>
                 <div className="flex rounded-md border overflow-hidden text-xs">
-                  <button className={clsx("px-2.5 py-1", view === "detail" ? "bg-accent-soft text-accent font-medium" : "text-muted hover:text-fg")} onClick={() => setView("detail")}>상세히 보기</button>
-                  <button className={clsx("px-2.5 py-1 border-l", view === "simple" ? "bg-accent-soft text-accent font-medium" : "text-muted hover:text-fg")} onClick={() => setView("simple")}>간단히 보기</button>
+                  <button className={clsx("px-2.5 py-1", view === "detail" ? "bg-accent-soft text-accent font-medium" : "text-muted hover:text-fg")} onClick={() => setView("detail")} title="상세히 보기">상세<span className="tb-label">히 보기</span></button>
+                  <button className={clsx("px-2.5 py-1 border-l", view === "simple" ? "bg-accent-soft text-accent font-medium" : "text-muted hover:text-fg")} onClick={() => setView("simple")} title="간단히 보기">간단<span className="tb-label">히 보기</span></button>
                 </div>
                 <button className="btn btn-sm" disabled={!pages.length || busy !== null} onClick={autoArrange} title="저장된 위치를 지우고 계층 구조대로 다시 배치합니다">
-                  {busy === "layout" ? <Spinner /> : <AlignHorizontalDistributeCenter size={13} />} 자동 정렬
+                  {busy === "layout" ? <Spinner /> : <AlignHorizontalDistributeCenter size={13} />}<span className="tb-label"> 자동 정렬</span>
                 </button>
               </>
             )}
-            <button className="btn btn-sm" onClick={() => createPage(null)}><Plus size={13} /> 최상위 페이지</button>
+            <button className="btn btn-sm" onClick={() => createPage(null)} title="최상위 페이지 추가"><Plus size={13} /><span className="tb-label"> 최상위 페이지</span></button>
             <div className="relative">
               <button className="btn btn-sm btn-primary" disabled={busy !== null} onClick={() => setMenu((v) => !v)}>
-                {busy && busy !== "accept" ? <Spinner /> : <Sparkles size={13} />} 매니로 생성 <ChevronDown size={12} />
+                {busy && busy !== "accept" ? <Spinner /> : <Sparkles size={13} />}<span className="tb-label"> 매니로 생성</span> <ChevronDown size={12} />
               </button>
               {menu && (
                 <>

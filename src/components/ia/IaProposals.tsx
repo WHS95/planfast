@@ -34,7 +34,7 @@ export function IaProposals({ proposal, pages, specs, onChange, onAccept, onReje
     : { ...proposal, updates: proposal.updates.map((u) => ({ ...u, checked: v })) };
 
   return (
-    <div className="w-[360px] shrink-0 border-l bg-panel flex flex-col min-h-0">
+    <div className="w-80 shrink-0 border-l bg-panel flex flex-col min-h-0">
       <div className="px-4 py-2.5 border-b flex items-center gap-2">
         <Sparkles size={13} className="text-accent" />
         <div className="text-sm font-medium flex-1 truncate">

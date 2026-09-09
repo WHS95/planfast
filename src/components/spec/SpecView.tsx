@@ -62,13 +62,13 @@ export function SpecView({ projectId, projectTitle, built }: { projectId: string
 
       {/* 문서 */}
       <div className="flex-1 min-w-0 flex flex-col min-h-0">
-        <div className="h-11 border-b bg-panel flex items-center px-3 gap-2 shrink-0">
+        <div className="editor-toolbar h-11 border-b bg-panel">
           <h1 className="text-sm font-semibold">화면설계서</h1>
-          <span className="text-[11px] text-muted truncate">정보구조도·기능명세서·유저플로우·와이어프레임을 모아 조립한 문서입니다</span>
+          <span className="tb-secondary text-[11px] text-muted">정보구조도·기능명세서·유저플로우·와이어프레임을 모아 조립한 문서입니다</span>
           <div className="ml-auto flex items-center gap-1.5">
-            <a className="btn btn-sm" href={`/api/projects/${projectId}/export?type=screen-spec-html`}><Download size={13} /> HTML 내보내기</a>
+            <a className="btn btn-sm" href={`/api/projects/${projectId}/export?type=screen-spec-html`} title="HTML 내보내기"><Download size={13} /><span className="tb-label"> HTML 내보내기</span></a>
             <a className="btn btn-sm" href={`/api/projects/${projectId}/export?type=screen-spec-html`} target="_blank" rel="noopener"
-              title="새 탭에서 열어 인쇄(⌘P) → PDF로 저장하면 A4 가로 문서가 됩니다"><Printer size={13} /> 인쇄용 보기</a>
+              title="새 탭에서 열어 인쇄(⌘P) → PDF로 저장하면 A4 가로 문서가 됩니다"><Printer size={13} /><span className="tb-label"> 인쇄용 보기</span></a>
           </div>
         </div>
 
